@@ -17,11 +17,14 @@ import (
 
 var (
 	brokerList        = kingpin.Flag("brokerList", "List of brokers to connect").Default("kafka:9092").Strings()
-	topic             = kingpin.Flag("topic", "Topic name").Default("votes").String()
+	topic             = kingpin.Flag("topic", "Topic name").Default(pendingVotesTopic).String()
 	messageCountStart = kingpin.Flag("messageCountStart", "Message counter start from:").Int()
 )
 
 const (
+	pendingVotesTopic   = "votes"
+	resultsUpdatedTopic = "vote-results-updated"
+
 	host     = "postgresql"
 	port     = 5432
 	user     = "okteto"

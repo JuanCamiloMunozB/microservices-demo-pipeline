@@ -11,6 +11,8 @@ var express = require('express'),
   });
 
 var port = process.env.PORT || 4000;
+var kafkaBroker = process.env.KAFKA_BROKER || 'kafka:9092';
+var resultsTopic = process.env.RESULTS_TOPIC || 'vote-results-updated';
 
 io.sockets.on('connection', function (socket) {
   socket.emit('message', { text: 'Welcome!' });
