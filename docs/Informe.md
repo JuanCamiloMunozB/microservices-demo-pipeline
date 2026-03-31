@@ -73,9 +73,7 @@ La metodología seleccionada fue **Kanban**. La elección responde a que Kanban 
 
 ## 5.4 Aplicación concreta de Kanban al proyecto
 
-La aplicación de Kanban se basó en un tablero con flujo explícito y políticas de avance claras. Las columnas utilizadas fueron: **Pendiente**, **En desarrollo** y **Terminado**. Esta estructura permitió representar no solo el desarrollo de funcionalidades, sino también el tránsito de decisiones arquitectónicas, scripts, manifiestos de infraestructura, configuración de pipelines y secciones del informe.
-
-Cada tarjeta se definió como una unidad de trabajo verificable, asociada a un resultado concreto del taller. En lugar de usar tareas ambiguas, el tablero se estructuró alrededor de decisiones y entregables específicos: selección y redacción de la metodología ágil, definición de branching para desarrollo y operaciones, incorporación de los patrones Publisher and Subscriber y Circuit Breaker en la arquitectura, construcción del diagrama final, automatización del pipeline de desarrollo para `vote`, `worker` y `result`, automatización del pipeline de infraestructura y despliegue de PostgreSQL, Kafka y los servicios de aplicación.
+La aplicación de Kanban se basó en un tablero con flujo explícito y políticas de avance claras. Las columnas utilizadas fueron: **Backlog**, **Pendiente**, **En desarrollo**, **En revisión** y **Terminado**. Las tareas se definieron de manera granular, asignando responsables y criterios de aceptación claros. Se establecieron límites de trabajo en curso para evitar sobrecarga y se promovió la colaboración entre desarrollo y operaciones para resolver bloqueos o dependencias. El tablero se mantuvo actualizado durante todo el proceso, sirviendo como herramienta central de coordinación y seguimiento.
 
 ## 5.5 Backlog de trabajo integrado al tablero
 
@@ -152,8 +150,7 @@ La estrategia adoptada para desarrollo se definió así:
 
 * `main`: rama estable del proyecto, siempre en estado desplegable o integrable.
 * `feature/<nombre-cambio>`: ramas cortas para nuevas funcionalidades o ajustes visibles.
-* `hotfix/<nombre-ajuste>`: ramas de atención rápida sobre un problema identificado en una versión validada.
-* `release/<nombre-release>`: ramas opcionales para preparar entregas formales, aunque no se priorizaron en esta fase del taller.
+* `bugfix/<nombre-release>`: ramas cortas para corrección de defectos.
 
 ## 6.3 Flujo de trabajo
 
@@ -198,7 +195,6 @@ La estrategia definida para operaciones fue:
 * `staging`: rama para validar cambios operativos antes de promoverlos.
 * `production`: rama reservada para infraestructura aprobada y lista para despliegue estable.
 * `infra/<nombre-cambio>`: ramas cortas para cambios en IaC, despliegue o aprovisionamiento.
-* `config/<nombre-cambio>`: ramas cortas para configuración operativa.
 * `opsfix/<nombre-ajuste>`: ramas rápidas para corrección urgente en scripts o manifiestos.
 
 ## 7.4 Flujo de trabajo
