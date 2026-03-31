@@ -2,6 +2,7 @@ var express = require('express'),
   async = require('async'),
   pg = require('pg'),
   path = require('path'),
+  { startResultsUpdateConsumer } = require('./kafka-consumer'),
   cookieParser = require('cookie-parser'),
   methodOverride = require('method-override'),
   app = express(),
@@ -42,11 +43,22 @@ async.retry(
       return;
     }
     console.log('Connected to db');
-    getVotes(client);
+
+    refreshScores(client);
+
+    startResultsUpdateConsumer({
+      kafkaBroker: kafkaBroker,
+      resultsTopic: resultsTopic,
+      onResultsUpdated: function () {
+        refreshScores(client);
+      },
+    }).catch(function (consumerErr) {
+      console.error('Kafka consumer stopped', consumerErr);
+    });
   }
 );
 
-function getVotes(client) {
+function refreshScores(client) {
   client.query(
     'SELECT vote, COUNT(id) AS count FROM votes GROUP BY vote',
     [],
@@ -56,11 +68,8 @@ function getVotes(client) {
       } else {
         var votes = collectVotesFromResult(result);
         io.sockets.emit('scores', JSON.stringify(votes));
+        console.log('Scores refreshed and emitted');
       }
-
-      setTimeout(function () {
-        getVotes(client);
-      }, 1000);
     }
   );
 }
