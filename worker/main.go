@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"os"
 	"os/signal"
+	"time"
 
 	"database/sql"
 	"fmt"
@@ -32,7 +34,17 @@ const (
 	dbname   = "votes"
 )
 
+type voteResultsUpdatedEvent struct {
+	Type      string `json:"type"`
+	Source    string `json:"source"`
+	VoterID   string `json:"voterId"`
+	Vote      string `json:"vote"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
 func main() {
+	kingpin.Parse()
+
 	db := openDatabase()
 	defer db.Close()
 
@@ -48,13 +60,17 @@ func main() {
 		log.Panic(err)
 	}
 
-	master := getKafkaMaster()
-	defer master.Close()
+	consumerMaster := getKafkaConsumer()
+	defer consumerMaster.Close()
 
-	consumer, err := master.ConsumePartition(*topic, 0, sarama.OffsetOldest)
+	producer := newKafkaProducer()
+	defer producer.Close()
+
+	consumer, err := consumerMaster.ConsumePartition(*topic, 0, sarama.OffsetOldest)
 	if err != nil {
 		log.Panic(err)
 	}
+	defer consumer.Close()
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt)
@@ -66,11 +82,20 @@ func main() {
 				fmt.Println(err)
 			case msg := <-consumer.Messages():
 				*messageCountStart++
-				fmt.Printf("Received message: user %s vote %s\n", string(msg.Key), string(msg.Value))
 
-				insertDynStmt := `insert into "votes"("id", "vote") values($1, $2) on conflict(id) do update set vote = $2`
-				if _, err := db.Exec(insertDynStmt, *messageCountStart, string(msg.Value)); err != nil {
+				voterID := string(msg.Key)
+				vote := string(msg.Value)
+				log.Printf("vote received: voterId=%s vote=%s", voterID, vote)
+
+				if err := storeVote(db, voterID, vote); err != nil {
 					log.Panic(err)
+				}
+				log.Printf("vote persisted: voterId=%s vote=%s", voterID, vote)
+
+				if err := publishResultsUpdated(producer, voterID, vote); err != nil {
+					log.Printf("failed to publish results update event: %v", err)
+				} else {
+					log.Printf("results update event published: voterId=%s topic=%s", voterID, resultsUpdatedTopic)
 				}
 			case <-signals:
 				fmt.Println("Interrupt is detected")
@@ -102,8 +127,37 @@ func pingDatabase(db *sql.DB) {
 	}
 }
 
-func getKafkaMaster() sarama.Consumer {
-	kingpin.Parse()
+func storeVote(db *sql.DB, voterID string, vote string) error {
+	insertDynStmt := `insert into "votes"("id", "vote") values($1, $2) on conflict(id) do update set vote = $2`
+	_, err := db.Exec(insertDynStmt, voterID, vote)
+	return err
+}
+
+func publishResultsUpdated(producer sarama.SyncProducer, voterID string, vote string) error {
+	event := voteResultsUpdatedEvent{
+		Type:      "VOTE_RESULTS_UPDATED",
+		Source:    "worker",
+		VoterID:   voterID,
+		Vote:      vote,
+		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+
+	message := &sarama.ProducerMessage{
+		Topic: resultsUpdatedTopic,
+		Key:   sarama.StringEncoder(voterID),
+		Value: sarama.ByteEncoder(payload),
+	}
+
+	_, _, err = producer.SendMessage(message)
+	return err
+}
+
+func getKafkaConsumer() sarama.Consumer {
 	config := sarama.NewConfig()
 	config.Consumer.Return.Errors = true
 	brokers := *brokerList
@@ -113,6 +167,21 @@ func getKafkaMaster() sarama.Consumer {
 		if err == nil {
 			fmt.Println("Kafka connected!")
 			return master
+		}
+	}
+}
+
+func newKafkaProducer() sarama.SyncProducer {
+	config := sarama.NewConfig()
+	config.Producer.Return.Successes = true
+	brokers := *brokerList
+
+	fmt.Println("Waiting for kafka producer...")
+	for {
+		producer, err := sarama.NewSyncProducer(brokers, config)
+		if err == nil {
+			fmt.Println("Kafka producer connected!")
+			return producer
 		}
 	}
 }
