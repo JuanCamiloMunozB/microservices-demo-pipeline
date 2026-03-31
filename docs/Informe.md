@@ -73,9 +73,70 @@ La metodología seleccionada fue **Kanban**. La elección responde a que Kanban 
 
 ## 5.4 Aplicación concreta de Kanban al proyecto
 
-La aplicación de Kanban se basó en un tablero con flujo explícito y políticas de avance claras. Las columnas utilizadas fueron: **Pendiente**, **En desarrollo**, y **Terminado**. Esta estructura permitió representar no solo el desarrollo de funcionalidades, sino también el tránsito de decisiones arquitectónicas, scripts, manifiestos de infraestructura, evidencia de pipelines y secciones del informe.
+La aplicación de Kanban se basó en un tablero con flujo explícito y políticas de avance claras. Las columnas utilizadas fueron: **Pendiente**, **En desarrollo** y **Terminado**. Esta estructura permitió representar no solo el desarrollo de funcionalidades, sino también el tránsito de decisiones arquitectónicas, scripts, manifiestos de infraestructura, configuración de pipelines y secciones del informe.
 
-Cada tarjeta se definió como una unidad de trabajo verificable, asociada a un entregable concreto del taller. Por ejemplo, no se utilizó una tarjeta ambigua como “hacer pipeline”, sino tareas más específicas como “implementar etapa de build y test”, “definir estrategia de branching para operaciones”, “incorporar Circuit Breaker al diagrama de despliegue” o “documentar la justificación del patrón Publisher-Subscriber”.
+Cada tarjeta se definió como una unidad de trabajo verificable, asociada a un resultado concreto del taller. En lugar de usar tareas ambiguas, el tablero se estructuró alrededor de decisiones y entregables específicos: selección y redacción de la metodología ágil, definición de branching para desarrollo y operaciones, incorporación de los patrones Publisher and Subscriber y Circuit Breaker en la arquitectura, construcción del diagrama final, automatización del pipeline de desarrollo para `vote`, `worker` y `result`, automatización del pipeline de infraestructura y despliegue de PostgreSQL, Kafka y los servicios de aplicación.
+
+## 5.5 Backlog de trabajo integrado al tablero
+
+### Entregables de definición y diseño
+
+1. **[Desarrollo] Documentar en el informe la metodología ágil seleccionada y su aplicación al proyecto**
+   Redactar la justificación de la metodología elegida, explicando cómo se usó en el desarrollo del taller y su relación con el trabajo conjunto entre desarrollo y operaciones.
+
+2. **[Desarrollo] Documentar en el informe la estrategia de branching para desarrollo**
+   Definir y justificar la estrategia de ramas para cambios funcionales sobre `vote`, `worker` y `result`, alineada con integración continua y control de cambios.
+
+3. **[Operaciones] Documentar en el informe la estrategia de branching para operaciones**
+   Definir y justificar la estrategia de ramas para cambios sobre despliegue, configuración e infraestructura.
+
+4. **[Desarrollo] Documentar en el informe los patrones cloud seleccionados y su justificación técnica**
+   Sustentar la elección de **Publisher and Subscriber** y **Circuit Breaker** en función de la arquitectura del sistema y de los problemas identificados en el flujo de resultados y en el acceso a base de datos.
+
+5. **[Operaciones] Elaborar el diagrama de arquitectura final del sistema con los patrones incorporados**
+   Construir el diagrama de despliegue/componentes del sistema mostrando `vote`, `kafka`, `worker`, `result` y `db`, junto con los elementos añadidos para mensajería de resultados y protección de acceso a PostgreSQL.
+
+### Cambios funcionales y arquitectónicos sobre el sistema
+
+6. **[Desarrollo] Implementar la publicación de eventos de actualización de resultados desde el `worker`**
+   Modificar el flujo del servicio `worker` para que, después de persistir un voto, publique un evento de actualización hacia Kafka.
+
+7. **[Desarrollo] Implementar la suscripción a eventos de actualización en `result-application`**
+   Incorporar en la aplicación de resultados la recepción de eventos provenientes de Kafka para reaccionar a cambios en el conteo.
+
+8. **[Desarrollo] Ajustar `result-application` para reducir la dependencia de polling continuo a PostgreSQL**
+   Adaptar la lógica de actualización de resultados para que el refresco se dispare a partir de eventos de actualización y no únicamente por consulta repetitiva a la base de datos.
+
+9. **[Desarrollo] Implementar Circuit Breaker en la ruta de lectura de resultados hacia PostgreSQL**
+   Incorporar una capa de protección entre `result-application` y la base de datos para manejar fallos o latencia persistente en la dependencia remota.
+
+10. **[Desarrollo] Implementar Circuit Breaker en la ruta de escritura del `worker` hacia PostgreSQL**
+    Incorporar una capa de protección entre `worker` y la base de datos para evitar propagación de errores durante la persistencia de votos.
+
+### Automatización y pipelines
+
+11. **[Desarrollo] Construir el pipeline de desarrollo para validación, build y generación de imágenes de `vote`, `worker` y `result`**
+    Automatizar la validación técnica de los servicios, su construcción y el empaquetado de imágenes versionadas y trazables.
+
+12. **[Desarrollo] Integrar la publicación de imágenes al registro dentro del pipeline de desarrollo**
+    Dejar automatizada la generación y publicación de artefactos para que luego puedan ser desplegados por la capa operativa.
+
+13. **[Operaciones] Construir el pipeline de infraestructura para validar y desplegar la solución**
+    Automatizar la validación de manifiestos o scripts operativos y la promoción del despliegue del entorno.
+
+14. **[Operaciones] Parametrizar el despliegue para consumir las imágenes generadas por el pipeline de desarrollo**
+    Conectar el pipeline de infraestructura con los artefactos generados en desarrollo, garantizando trazabilidad entre build y despliegue.
+
+### Infraestructura y despliegue
+
+15. **[Operaciones] Implementar el despliegue de PostgreSQL, Kafka y los servicios de aplicación en el entorno objetivo**
+    Desplegar la infraestructura necesaria para ejecutar la arquitectura definida con los servicios `vote`, `worker`, `result`, Kafka y PostgreSQL.
+
+16. **[Operaciones] Configurar la comunicación entre servicios y la exposición mínima necesaria del sistema desplegado**
+    Dejar operativa la conectividad entre los componentes internos y la exposición requerida para el uso y validación del sistema.
+
+17. **[Operaciones] Validar el entorno desplegado con foco en conectividad, disponibilidad y ejecución del flujo completo de voto**
+    Verificar que el sistema permita votar, procesar el evento, persistir el resultado y mostrar la actualización correspondiente.
 
 ---
 
@@ -224,82 +285,99 @@ El beneficio esperado es doble. En `result-app`, el patrón evita insistir sobre
 
 # 9. Diagrama de arquitectura
 
+El diagrama final representa el sistema como un conjunto de unidades de despliegue lógicas que agrupan sus componentes internos de responsabilidad. El nodo `voting-application` contiene `VotingUI`, `VotingController` y `PendingVoteProducer`, reflejando la captura del voto y su publicación al broker. El nodo `kafka` reúne `KafkaBroker`, `PendingVotesTopic` y `VoteResultsEventTopic`, mostrando tanto el flujo original de votos como el nuevo canal de actualización de resultados. El nodo `worker` integra `PendingVoteConsumer`, `Worker`, `ResultsUpdatePublisher`, `WorkerDbCircuitBreaker` y `WorkerDbClient`, evidenciando que el procesamiento de votos, la emisión de eventos y la persistencia se ejecutan dentro del mismo servicio, pero con responsabilidades diferenciadas. Finalmente, `result-application` contiene `VoteResultsUI`, `VoteResultsServer`, `ResultsUpdateSubscriber`, `ResultDbCircuitBreaker` y `ResultDbClient`, expresando la transición desde un esquema de polling hacia una reacción basada en eventos, sin perder la consulta a PostgreSQL como fuente de verdad del conteo.
+
+La arquitectura definida materializa directamente los dos patrones seleccionados. Publisher and Subscriber queda visible en la relación entre `ResultsUpdatePublisher`, `KafkaBroker`, `VoteResultsEventTopic` y `ResultsUpdateSubscriber`, lo que permite notificar cambios de estado sin acoplar `worker` con `result-application`. Circuit Breaker aparece mediante los componentes `ResultDbCircuitBreaker` y `WorkerDbCircuitBreaker`, ubicados del lado cliente en las rutas de lectura y escritura hacia PostgreSQL, con el fin de contener fallos o latencia persistente de la base de datos. De esta manera, el diagrama no solo describe la estructura del sistema, sino que también evidencia cómo las decisiones arquitectónicas se traducen en componentes concretos que soportan resiliencia, desacoplamiento y preparación para automatización.
+
 ![Diagrama de arquitectura](./image/Taller%201%20-%20Diagrama%20de%20Arquitectura-Diagrama%20con%20patrones.drawio.png)
 
 # 10. Pipeline de desarrollo
 
 ## 10.1 Objetivo del pipeline de desarrollo
 
-**Debe contener:**
+El pipeline de desarrollo se diseñó para transformar cambios en el código fuente de `vote`, `worker` y `result` en artefactos versionados, trazables y listos para despliegue. Su objetivo es automatizar la validación técnica de los servicios, su construcción y el empaquetado en imágenes de contenedor, de forma que cada cambio funcional que llegue a una rama de desarrollo produzca una salida consistente y reutilizable por el pipeline de infraestructura. La lógica general del pipeline responde a un flujo de integración continua: primero se verifica que los tres servicios se encuentren en un estado construible; después se empaquetan como imágenes; finalmente se publican en un registro para que operaciones pueda consumirlas sin depender del repositorio fuente durante el despliegue.
 
-* Qué automatiza el pipeline
-* Qué etapas cubre
-* Qué artefactos genera
+Desde la perspectiva del proyecto, este pipeline cubre el frente de automatización asociado exclusivamente al software de aplicación. No aprovisiona Kafka ni PostgreSQL, ni ejecuta despliegues al entorno objetivo; en cambio, garantiza que `vote`, `worker` y `result` puedan convertirse en artefactos listos para usarse y que esos artefactos queden identificados por commit, ejecución o versión de build. Esta separación fue adoptada para que el equipo de desarrollo se concentre en calidad del cambio y generación de imágenes, mientras el equipo de operaciones se encarga de la promoción y despliegue controlado de esos mismos artefactos.
 
-## 10.2 Etapas del pipeline
+## 10.2 Diseño general y conexión con el flujo DevOps
 
-**Debe contener:**
+El pipeline de desarrollo se ejecuta ante cambios en ramas funcionales o solicitudes de integración que afecten los servicios de aplicación. Su papel en el flujo DevOps es el de productor de artefactos: toma el código, lo verifica y produce imágenes de contenedor con tags trazables. Estas imágenes se convierten en la salida oficial del pipeline y en la entrada del pipeline de infraestructura. La trazabilidad entre ambos pipelines se mantiene registrando, al final del proceso, qué imagen corresponde a cada servicio, con qué tag fue publicada y qué commit la originó. En consecuencia, la relación entre ambos flujos no se apoya en referencias manuales, sino en artefactos versionados que operaciones puede consumir de manera declarativa.
 
-* Obtención del código
-* Instalación de dependencias
-* Compilación o build
-* Pruebas
-* Construcción de imagen o artefacto
-* Publicación o entrega al siguiente flujo
+## 10.3 Etapas del pipeline de desarrollo
 
-## 10.3 Scripts utilizados
+La primera etapa corresponde a la **obtención del código**. En esta fase se hace checkout de la rama objetivo y se resuelve el contexto de ejecución del pipeline. A partir de ahí se activa la capa de validación.
 
-**Debe contener:**
+La segunda etapa es la **validación técnica de los servicios**. Dado que el proyecto combina varias tecnologías, esta fase se adapta al contexto de cada servicio. Para `vote`, el pipeline debe ejecutar su proceso de build o validación propia del stack Java; para `worker`, debe verificar que el servicio Go compile correctamente; y para `result`, debe instalar dependencias y comprobar que el servicio Node.js sea construible o ejecutable. La intención de esta etapa no es realizar una batería extensa de pruebas funcionales, sino asegurar que el cambio introducido no rompa la capacidad básica de construir los tres servicios.
 
-* Scripts creados o adaptados
-* Propósito de cada script
-* Relación con el pipeline
+La tercera etapa es el **build por servicio**. Superada la validación, el pipeline prepara el empaquetado individual de `vote`, `worker` y `result`. Esta separación es importante porque permite detectar con precisión qué componente falla y evita que un error en un servicio oculte el comportamiento de los demás.
 
-## 10.4 Evidencia de funcionamiento
+La cuarta etapa es la **construcción de imágenes**. En esta fase se ejecutan los Dockerfiles o definiciones equivalentes de cada servicio para generar una imagen de contenedor por componente. Las imágenes se etiquetan con un valor trazable, por ejemplo el hash corto del commit o un identificador del build. La decisión de etiquetarlas de manera consistente es crítica, porque luego el pipeline de infraestructura debe consumir exactamente esas versiones y no una mezcla de builds previos.
 
-**Debe contener:**
+La quinta etapa es la **publicación de artefactos**. Las imágenes generadas se publican en un registro de contenedores, como GHCR o Docker Hub, que actúa como artifact store del flujo. En este punto, el pipeline deja de trabajar sobre código fuente y pasa a trabajar sobre artefactos listos para ser desplegados. Junto con las imágenes, se registra la relación entre servicio, tag e identificador del commit, lo que permite rastrear posteriormente qué build fue promovido a despliegue.
 
-* Capturas, logs o resultados de ejecución
-* Explicación breve de la evidencia
+La sexta etapa es la **emisión del resultado del build**. El pipeline debe producir una salida estructurada con la información mínima necesaria para operaciones: imagen de `vote`, imagen de `worker`, imagen de `result`, tag de cada una, rama de origen y commit asociado. Esta salida constituye el punto de enlace con el pipeline de infraestructura.
+
+## 10.4 Herramientas y organización de archivos
+
+Una implementación coherente para este proyecto puede utilizar GitHub Actions como motor de automatización, dado que el código reside en GitHub y el flujo de ramas de desarrollo ya fue planteado sobre esa plataforma. El pipeline puede residir en un archivo como `.github/workflows/dev-pipeline.yml`, acompañado por scripts de apoyo organizados en una carpeta `scripts/ci/`. Esta carpeta puede contener un script de validación por servicio y un script general de build, de modo que el pipeline delegue acciones concretas a comandos versionados y reutilizables.
+
+A nivel de estructura, el repositorio conserva sus carpetas base `vote`, `worker`, `result` e `infrastructure`, y se le añade únicamente la capa de automatización. Esta organización resulta especialmente adecuada porque la separación ya existente entre servicios facilita que el pipeline trate cada uno como una unidad de build independiente.
+
+## 10.5 Artefactos generados y trazabilidad
+
+Los artefactos generados por el pipeline de desarrollo son tres imágenes de contenedor: una para `vote`, una para `worker` y una para `result`. Cada una debe quedar publicada con un tag trazable, por ejemplo `sha-<commit>`, y acompañarse de metadatos que permitan saber qué versión se produjo, cuándo se produjo y a partir de qué rama se generó. Esa información es necesaria no solo para despliegue, sino también para sustentar el taller, ya que permite demostrar que existe correspondencia entre el cambio de código, el build y la versión finalmente desplegada.
+
+## 10.6 Evidencia de funcionamiento
+
+[Poner imagen aqui después de ejecutar el pipeline]
 
 ---
 
 # 11. Pipeline de infraestructura
 
-> Esta sección debe incluir también los scripts necesarios para las tareas automatizadas. 
-
 ## 11.1 Objetivo del pipeline de infraestructura
 
-**Debe contener:**
+El pipeline de infraestructura se diseñó para tomar las imágenes generadas por el pipeline de desarrollo y convertirlas en un sistema desplegado y operativo, compuesto por PostgreSQL, Kafka, `vote`, `worker` y `result`. Su función principal es automatizar la validación de manifiestos y configuraciones operativas, inyectar los artefactos correctos en el despliegue y aplicar la infraestructura necesaria para que la solución definida en la arquitectura pueda ejecutarse. En otras palabras, este pipeline no produce software nuevo; consume artefactos ya construidos y los promueve a un entorno real de ejecución.
 
-* Qué despliega o valida
-* Qué parte de la infraestructura automatiza
-* Relación con IaC o scripts de provisión
+## 11.2 Rol dentro del flujo DevOps
 
-## 11.2 Etapas del pipeline de infraestructura
+Dentro del flujo general, el pipeline de infraestructura representa la parte operativa del ciclo DevOps. Mientras el pipeline de desarrollo responde a la pregunta de si el software quedó correctamente construido, este segundo pipeline responde a si ese software puede ser desplegado y ejecutado en el entorno objetivo bajo una configuración consistente. El nexo entre ambos pipelines se mantiene mediante los tags de imágenes publicados por desarrollo. El pipeline de infraestructura no debe desplegar versiones elegidas manualmente, sino leer la salida del build anterior e inyectar exactamente esas imágenes en los manifiestos del entorno.
 
-**Debe contener:**
+## 11.3 Etapas del pipeline de infraestructura
 
-* Validación de sintaxis o configuración
-* Aprovisionamiento o despliegue
-* Aplicación de configuraciones
-* Verificación del entorno
+La primera etapa corresponde a la **validación de manifiestos y configuración**. Antes de desplegar cualquier recurso, el pipeline debe verificar que los archivos operativos son sintácticamente correctos, que contienen referencias válidas a imágenes y que las variables obligatorias están presentes. Dado que este proyecto depende de servicios interconectados, esta fase también debe revisar que existan valores coherentes para conectividad entre `vote`, `worker`, `result`, Kafka y PostgreSQL.
 
-## 11.3 Scripts o archivos de infraestructura utilizados
+La segunda etapa es la **resolución de artefactos provenientes del pipeline de desarrollo**. Aquí el pipeline toma como entrada la salida del build y obtiene los tags exactos de las imágenes de `vote`, `worker` y `result`. El despliegue no debe usar imágenes “por defecto” ni versiones elegidas manualmente, sino consumir de manera trazable la versión construida por desarrollo.
 
-**Debe contener:**
+La tercera etapa es el **aprovisionamiento o actualización de infraestructura base**. En este proyecto, el orden recomendado es desplegar primero PostgreSQL y Kafka, porque ambos constituyen dependencias de los servicios de aplicación. Luego se despliegan `vote`, `worker` y `result`, configurados para apuntar al broker y a la base de datos correspondientes.
 
-* Manifiestos, scripts o definiciones de infraestructura
-* Función de cada uno
-* Cómo participan en la automatización
+La cuarta etapa es la **aplicación de configuraciones por ambiente**. El pipeline debe tratar el ambiente como un conjunto de parámetros de entrada y no como una copia separada del proceso. Por ello, resulta apropiado centralizar valores de entorno, direcciones, credenciales referenciadas y tags de imagen en archivos de values o variables de entorno por ambiente. De esta manera, el mismo pipeline puede operar sobre `staging` o `production` cambiando únicamente los parámetros.
 
-## 11.4 Evidencia de funcionamiento
+La quinta etapa es la **verificación del entorno desplegado**. Tras aplicar infraestructura y servicios, el pipeline debe comprobar que los componentes principales quedaron disponibles y que la conectividad básica se mantiene: `vote` debe poder iniciar, `worker` debe alcanzar Kafka y PostgreSQL, y `result` debe quedar en capacidad de consultar y reaccionar al flujo de actualización definido en la arquitectura.
 
-**Debe contener:**
+## 11.4 Herramientas y organización de archivos
 
-* Resultados del pipeline
-* Capturas, logs o salidas del sistema
+Para este proyecto, una estrategia coherente es utilizar GitHub Actions como motor del pipeline de infraestructura y Helm como mecanismo de empaquetado y despliegue de los componentes. Esta decisión es consistente con la forma en que el ejemplo original de Okteto despliega `postgresql`, `kafka`, `vote`, `worker` y `result` mediante comandos `helm upgrade --install`, pasando además las imágenes de aplicación por variables o parámetros. En consecuencia, el archivo principal puede ubicarse en `.github/workflows/infra-pipeline.yml`, mientras que la carpeta `infrastructure/` conserva los charts, values y manifiestos relacionados con el entorno.
 
+Como apoyo adicional, una carpeta `scripts/ops/` puede concentrar scripts de validación de valores, despliegue o verificación posterior. Esta separación permite mantener el pipeline declarativo y delegar acciones repetibles a scripts versionados, lo que facilita mantenimiento y revisión.
+
+## 11.5 Archivos y definiciones operativas involucradas
+
+El pipeline de infraestructura debe apoyarse al menos en los siguientes tipos de archivos:
+
+* **Manifiestos o charts de PostgreSQL**, responsables de la base de datos persistente.
+* **Manifiestos o charts de Kafka**, responsables del broker y sus recursos asociados.
+* **Definiciones de despliegue de `vote`, `worker` y `result`**, parametrizadas para aceptar imágenes externas y configuración de conectividad.
+* **Archivos de configuración por ambiente**, donde se definan valores como tags de imagen, endpoints, parámetros de servicio y variables requeridas.
+* **Scripts de despliegue o verificación**, usados para aplicar y confirmar el estado del entorno.
+
+## 11.6 Trazabilidad entre build y despliegue
+
+La trazabilidad entre el pipeline de desarrollo y el pipeline de infraestructura es un requisito central del diseño. Para asegurarla, el pipeline de infraestructura debe registrar qué build fue tomado como origen, qué imágenes fueron desplegadas y en qué ambiente quedaron activas. Esto permite establecer una relación directa entre commit, imagen y despliegue. En la práctica, la infraestructura no debe ser desplegada con versiones genéricas como `latest`, sino con imágenes concretas e identificables que provengan del build correspondiente.
+
+## 11.8 Evidencia de funcionamiento
+
+[Poner imagen aqui después de ejecutar el pipeline]
 ---
 
 # 12. Implementación de la infraestructura
