@@ -33,12 +33,21 @@ async function startResultsUpdateConsumer(options) {
       let event = {};
 
       if (message.value) {
-        event = JSON.parse(message.value.toString());
+        try {
+          event = JSON.parse(message.value.toString());
+        } catch (err) {
+          console.error('Failed to parse results update event', err);
+          return;
+        }
       }
 
       if (event.type === 'VOTE_RESULTS_UPDATED') {
         console.log('Results update event received');
-        onResultsUpdated();
+        try {
+          onResultsUpdated();
+        } catch (err) {
+          console.error('Failed to refresh scores after event', err);
+        }
       }
     },
   });

@@ -19,13 +19,13 @@ import (
 
 var (
 	brokerList        = kingpin.Flag("brokerList", "List of brokers to connect").Default("kafka:9092").Strings()
-	topic             = kingpin.Flag("topic", "Topic name").Default(pendingVotesTopic).String()
+	topic             = kingpin.Flag("topic", "Topic name").Default(PENDING_VOTES_TOPIC).String()
 	messageCountStart = kingpin.Flag("messageCountStart", "Message counter start from:").Int()
 )
 
 const (
-	pendingVotesTopic   = "votes"
-	resultsUpdatedTopic = "vote-results-updated"
+	PENDING_VOTES_TOPIC  = "votes"
+	RESULTS_UPDATED_TOPIC = "vote-results-updated"
 
 	host     = "postgresql"
 	port     = 5432
@@ -95,7 +95,7 @@ func main() {
 				if err := publishResultsUpdated(producer, voterID, vote); err != nil {
 					log.Printf("failed to publish results update event: %v", err)
 				} else {
-					log.Printf("results update event published: voterId=%s topic=%s", voterID, resultsUpdatedTopic)
+					log.Printf("results update event published: voterId=%s topic=%s", voterID, RESULTS_UPDATED_TOPIC)
 				}
 			case <-signals:
 				fmt.Println("Interrupt is detected")
@@ -148,7 +148,7 @@ func publishResultsUpdated(producer sarama.SyncProducer, voterID string, vote st
 	}
 
 	message := &sarama.ProducerMessage{
-		Topic: resultsUpdatedTopic,
+		Topic: RESULTS_UPDATED_TOPIC,
 		Key:   sarama.StringEncoder(voterID),
 		Value: sarama.ByteEncoder(payload),
 	}

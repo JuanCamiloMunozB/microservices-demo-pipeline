@@ -12,8 +12,8 @@ var express = require('express'),
   });
 
 var port = process.env.PORT || 4000;
-var kafkaBroker = process.env.KAFKA_BROKER || 'kafka:9092';
-var resultsTopic = process.env.RESULTS_TOPIC || 'vote-results-updated';
+var KAFKA_BROKER = process.env.KAFKA_BROKER || 'kafka:9092';
+var RESULTS_UPDATED_TOPIC = process.env.RESULTS_TOPIC || 'vote-results-updated';
 
 io.sockets.on('connection', function (socket) {
   socket.emit('message', { text: 'Welcome!' });
@@ -47,8 +47,8 @@ async.retry(
     refreshScores(client);
 
     startResultsUpdateConsumer({
-      kafkaBroker: kafkaBroker,
-      resultsTopic: resultsTopic,
+      kafkaBroker: KAFKA_BROKER,
+      resultsTopic: RESULTS_UPDATED_TOPIC,
       onResultsUpdated: function () {
         refreshScores(client);
       },
