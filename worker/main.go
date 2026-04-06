@@ -18,20 +18,15 @@ import (
 )
 
 var (
-	brokerList        = kingpin.Flag("brokerList", "List of brokers to connect").Default("kafka:9092").Strings()
-	topic             = kingpin.Flag("topic", "Topic name").Default(PENDING_VOTES_TOPIC).String()
+	brokerList        = kingpin.Flag("brokerList", "List of brokers to connect").Default(getEnv("KAFKA_BROKER", "kafka:9092")).Strings()
+	topic             = kingpin.Flag("topic", "Topic name").Default(getEnv("PENDING_VOTES_TOPIC", "votes")).String()
 	messageCountStart = kingpin.Flag("messageCountStart", "Message counter start from:").Int()
-)
-
-const (
-	PENDING_VOTES_TOPIC  = "votes"
-	RESULTS_UPDATED_TOPIC = "vote-results-updated"
-
-	host     = "postgresql"
-	port     = 5432
-	user     = "okteto"
-	password = "okteto"
-	dbname   = "votes"
+	resultsUpdatedTopic = getEnv("RESULTS_UPDATED_TOPIC", "vote-results-updated")
+	dbHost            = getEnv("DB_HOST", "postgresql")
+	dbPort            = getEnv("DB_PORT", "5432")
+	dbUser            = getEnv("DB_USER", "okteto")
+	dbPassword        = getEnv("DB_PASSWORD", "okteto")
+	dbName            = getEnv("DB_NAME", "votes")
 )
 
 type voteResultsUpdatedEvent struct {
@@ -95,7 +90,7 @@ func main() {
 				if err := publishResultsUpdated(producer, voterID, vote); err != nil {
 					log.Printf("failed to publish results update event: %v", err)
 				} else {
-					log.Printf("results update event published: voterId=%s topic=%s", voterID, RESULTS_UPDATED_TOPIC)
+					log.Printf("results update event published: voterId=%s topic=%s", voterID, resultsUpdatedTopic)
 				}
 			case <-signals:
 				fmt.Println("Interrupt is detected")
@@ -108,7 +103,7 @@ func main() {
 }
 
 func openDatabase() *sql.DB {
-	psqlconn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
+	psqlconn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", dbHost, dbPort, dbUser, dbPassword, dbName)
 	for {
 		db, err := sql.Open("postgres", psqlconn)
 		if err == nil {
@@ -148,7 +143,7 @@ func publishResultsUpdated(producer sarama.SyncProducer, voterID string, vote st
 	}
 
 	message := &sarama.ProducerMessage{
-		Topic: RESULTS_UPDATED_TOPIC,
+		Topic: resultsUpdatedTopic,
 		Key:   sarama.StringEncoder(voterID),
 		Value: sarama.ByteEncoder(payload),
 	}
@@ -184,4 +179,12 @@ func newKafkaProducer() sarama.SyncProducer {
 			return producer
 		}
 	}
+}
+
+func getEnv(key string, fallback string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	return value
 }

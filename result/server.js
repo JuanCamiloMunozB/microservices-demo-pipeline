@@ -14,6 +14,12 @@ var express = require('express'),
 var port = process.env.PORT || 4000;
 var KAFKA_BROKER = process.env.KAFKA_BROKER || 'kafka:9092';
 var RESULTS_UPDATED_TOPIC = process.env.RESULTS_TOPIC || 'vote-results-updated';
+var DB_HOST = process.env.DB_HOST || 'postgresql';
+var DB_PORT = process.env.DB_PORT || '5432';
+var DB_USER = process.env.DB_USER || 'okteto';
+var DB_PASSWORD = process.env.DB_PASSWORD || 'okteto';
+var DB_NAME = process.env.DB_NAME || 'votes';
+var DATABASE_URL = process.env.DATABASE_URL || 'postgres://' + DB_USER + ':' + DB_PASSWORD + '@' + DB_HOST + ':' + DB_PORT + '/' + DB_NAME;
 
 io.sockets.on('connection', function (socket) {
   socket.emit('message', { text: 'Welcome!' });
@@ -24,7 +30,7 @@ io.sockets.on('connection', function (socket) {
 });
 
 var pool = new pg.Pool({
-  connectionString: 'postgres://okteto:okteto@postgresql/votes',
+  connectionString: DATABASE_URL,
 });
 
 async.retry(

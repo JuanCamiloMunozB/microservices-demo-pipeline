@@ -54,6 +54,8 @@ services:
   vote:
     build:
       context: ./vote
+    env_file:
+      - ./vote/.env
     depends_on:
       kafka:
         condition: service_healthy
@@ -68,6 +70,8 @@ services:
   worker:
     build:
       context: ./worker
+    env_file:
+      - ./worker/.env
     depends_on:
       kafka:
         condition: service_healthy
@@ -79,10 +83,8 @@ services:
   result:
     build:
       context: ./result
-    environment:
-      PORT: "80"
-      KAFKA_BROKER: kafka:9092
-      RESULTS_TOPIC: vote-results-updated
+    env_file:
+      - ./result/.env
     depends_on:
       kafka:
         condition: service_healthy
