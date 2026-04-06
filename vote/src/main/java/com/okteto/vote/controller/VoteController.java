@@ -3,6 +3,7 @@ package com.okteto.vote.controller;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Controller;
@@ -22,21 +23,25 @@ import java.util.UUID;
 
 @Controller
 public class VoteController {
-    private static final String OPTION_A_ENV_VAR = "OPTION_A";
-    private static final String OPTION_B_ENV_VAR = "OPTION_B";
-    private static final String KAFKA_TOPIC = "votes";
-
     private final Logger logger = LoggerFactory.getLogger(VoteController.class);
-
     @Autowired
     private KafkaTemplate<String, String> kafkaTemplate;
+
+    @Value("${OPTION_A:Burritos}")
+    private String optionA;
+
+    @Value("${OPTION_B:Tacos}")
+    private String optionB;
+
+    @Value("${PENDING_VOTES_TOPIC:votes}")
+    private String kafkaTopic;
 
     @GetMapping("/")
     String index(@CookieValue(name = "voter_id", defaultValue = "") String voterId,
                  Model model,
                  HttpServletResponse response) {
         String voter = voterId;
-        Vote v = new Vote();
+        Vote v = new Vote(optionA, optionB);
         model.addAttribute("optionA", v.getOptionA());
         model.addAttribute("optionB", v.getOptionB());
         model.addAttribute("hostname", v.getHostname());
@@ -59,7 +64,7 @@ public class VoteController {
                     HttpServletResponse response) {
         String voter = voterId;
         String vote = voteInput.getVote();
-        Vote v = new Vote();
+        Vote v = new Vote(optionA, optionB);
         model.addAttribute("optionA", v.getOptionA());
         model.addAttribute("optionB", v.getOptionB());
         model.addAttribute("hostname", v.getHostname());
@@ -73,7 +78,7 @@ public class VoteController {
         Cookie cookie = new Cookie("voter_id", voter);
         response.addCookie(cookie);
 
-        CompletableFuture<SendResult<String, String>> future = kafkaTemplate.send(KAFKA_TOPIC, voter, vote);
+        CompletableFuture<SendResult<String, String>> future = kafkaTemplate.send(kafkaTopic, voter, vote);
 
         future.whenComplete((result, ex) -> {
             if (ex == null) {
@@ -91,14 +96,18 @@ public class VoteController {
     }
 
     public static class Vote {
-        private String optionA = "Burritos";
-        private String optionB = "Tacos";
+        private String optionA;
+        private String optionB;
         private String hostname = "unknown";
         private String vote;
 
+        public Vote(String optionA, String optionB) {
+            this.optionA = optionA;
+            this.optionB = optionB;
+        }
+
         public String getOptionA() {
-            String result = System.getenv(OPTION_A_ENV_VAR);
-            return StringUtils.isEmpty(result) ? this.optionA : result;
+            return this.optionA;
         }
 
         public void setOptionA(String optionA) {
@@ -106,8 +115,7 @@ public class VoteController {
         }
 
         public String getOptionB() {
-            String result = System.getenv(OPTION_B_ENV_VAR);
-            return StringUtils.isEmpty(result) ? this.optionB : result;
+            return this.optionB;
         }
 
         public void setOptionB(String optionB) {
