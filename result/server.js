@@ -3,6 +3,7 @@ var express = require('express'),
   pg = require('pg'),
   path = require('path'),
   { ResultsRepository } = require('./results-repository'),
+  { CircuitBreaker, CircuitOpenError } = require('./circuit-breaker'),
   { startResultsUpdateConsumer } = require('./kafka-consumer'),
   cookieParser = require('cookie-parser'),
   methodOverride = require('method-override'),
@@ -33,6 +34,14 @@ io.sockets.on('connection', function (socket) {
 var pool = new pg.Pool({
   connectionString: DATABASE_URL,
 });
+
+var resultsBreaker = new CircuitBreaker({
+  failureThreshold: 3,
+  openTimeoutMs: 15000,
+  halfOpenSuccessThreshold: 2,
+});
+
+var lastValidVotes = null;
 
 async.retry(
   { times: 1000, interval: 1000 },
@@ -68,14 +77,33 @@ async.retry(
 );
 
 function refreshScores(resultsRepository) {
-  resultsRepository.getVoteCounts(function (err, votes) {
-    if (err) {
-      console.error('Error performing query: ' + err);
-    } else {
+  resultsBreaker
+    .execute(function () {
+      return new Promise(function (resolve, reject) {
+        resultsRepository.getVoteCounts(function (err, votes) {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          resolve(votes);
+        });
+      });
+    })
+    .then(function (votes) {
+      lastValidVotes = votes;
       io.sockets.emit('scores', JSON.stringify(votes));
       console.log('Scores refreshed and emitted');
-    }
-  });
+    })
+    .catch(function (err) {
+      if (err instanceof CircuitOpenError && lastValidVotes !== null) {
+        console.log('Circuit breaker open, returning fallback snapshot');
+        io.sockets.emit('scores', JSON.stringify(lastValidVotes));
+        return;
+      }
+
+      console.error('Error performing query: ' + err);
+    });
 }
 
 app.use(cookieParser());
