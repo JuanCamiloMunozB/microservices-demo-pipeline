@@ -65,3 +65,43 @@ jobs:
 
       - name: Validate result service
         run: bash scripts/ci/validate-result.sh
+
+  build-images:
+    runs-on: ubuntu-latest
+    needs:
+      - validate-vote
+      - validate-worker
+      - validate-result
+    strategy:
+      matrix:
+        service:
+          - vote
+          - worker
+          - result
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image tags
+        id: tags
+        shell: bash
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          branch_name="${GITHUB_REF_NAME}"
+          branch_sanitized="$(echo "${branch_name}" | tr '/[:space:]' '--')"
+
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "branch_sanitized=${branch_sanitized}" >> "$GITHUB_OUTPUT"
+
+      - name: Build ${{ matrix.service }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.service }}
+          file: ./${{ matrix.service }}/Dockerfile
+          push: false
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/microservices-demo/${{ matrix.service }}:sha-${{ steps.tags.outputs.short_sha }}
+            ghcr.io/${{ github.repository_owner }}/microservices-demo/${{ matrix.service }}:branch-${{ steps.tags.outputs.branch_sanitized }}
