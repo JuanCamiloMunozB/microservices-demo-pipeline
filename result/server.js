@@ -1,7 +1,8 @@
 var express = require('express'),
-  async = require('async'),
   pg = require('pg'),
   path = require('path'),
+  { ResultsRepository } = require('./results-repository'),
+  { CircuitBreaker, CircuitOpenError } = require('./circuit-breaker'),
   { startResultsUpdateConsumer } = require('./kafka-consumer'),
   cookieParser = require('cookie-parser'),
   methodOverride = require('method-override'),
@@ -20,6 +21,9 @@ var DB_USER = process.env.DB_USER || 'okteto';
 var DB_PASSWORD = process.env.DB_PASSWORD || 'okteto';
 var DB_NAME = process.env.DB_NAME || 'votes';
 var DATABASE_URL = process.env.DATABASE_URL || 'postgres://' + DB_USER + ':' + DB_PASSWORD + '@' + DB_HOST + ':' + DB_PORT + '/' + DB_NAME;
+var CB_FAILURE_THRESHOLD = parseEnvInt('CB_FAILURE_THRESHOLD', 3);
+var CB_OPEN_TIMEOUT_MS = parseEnvInt('CB_OPEN_TIMEOUT_MS', 15000);
+var CB_HALF_OPEN_SUCCESS_THRESHOLD = parseEnvInt('CB_HALF_OPEN_SUCCESS_THRESHOLD', 2);
 
 io.sockets.on('connection', function (socket) {
   socket.emit('message', { text: 'Welcome!' });
@@ -33,61 +37,70 @@ var pool = new pg.Pool({
   connectionString: DATABASE_URL,
 });
 
-async.retry(
-  { times: 1000, interval: 1000 },
-  function (callback) {
-    pool.connect(function (err, client, done) {
-      if (err) {
-        console.error('Waiting for db', err);
-      }
-      callback(err, client);
-    });
+var resultsBreaker = new CircuitBreaker({
+  failureThreshold: CB_FAILURE_THRESHOLD,
+  openTimeoutMs: CB_OPEN_TIMEOUT_MS,
+  halfOpenSuccessThreshold: CB_HALF_OPEN_SUCCESS_THRESHOLD,
+});
+
+var lastValidVotes = null;
+
+var resultsRepository = new ResultsRepository(pool);
+
+refreshScores(resultsRepository);
+
+startResultsUpdateConsumer({
+  kafkaBroker: KAFKA_BROKER,
+  resultsTopic: RESULTS_UPDATED_TOPIC,
+  onResultsUpdated: function () {
+    refreshScores(resultsRepository);
   },
-  function (err, client) {
-    if (err) {
-      console.error('Giving up');
-      return;
-    }
-    console.log('Connected to db');
+}).catch(function (consumerErr) {
+  console.error('Kafka consumer stopped', consumerErr);
+});
 
-    refreshScores(client);
+function refreshScores(resultsRepository) {
+  resultsBreaker
+    .execute(function () {
+      return new Promise(function (resolve, reject) {
+        resultsRepository.getVoteCounts(function (err, votes) {
+          if (err) {
+            reject(err);
+            return;
+          }
 
-    startResultsUpdateConsumer({
-      kafkaBroker: KAFKA_BROKER,
-      resultsTopic: RESULTS_UPDATED_TOPIC,
-      onResultsUpdated: function () {
-        refreshScores(client);
-      },
-    }).catch(function (consumerErr) {
-      console.error('Kafka consumer stopped', consumerErr);
-    });
-  }
-);
-
-function refreshScores(client) {
-  client.query(
-    'SELECT vote, COUNT(id) AS count FROM votes GROUP BY vote',
-    [],
-    function (err, result) {
-      if (err) {
-        console.error('Error performing query: ' + err);
-      } else {
-        var votes = collectVotesFromResult(result);
-        io.sockets.emit('scores', JSON.stringify(votes));
-        console.log('Scores refreshed and emitted');
+          resolve(votes);
+        });
+      });
+    })
+    .then(function (votes) {
+      lastValidVotes = votes;
+      io.sockets.emit('scores', JSON.stringify(votes));
+      console.log('Scores refreshed and emitted');
+    })
+    .catch(function (err) {
+      if (err instanceof CircuitOpenError && lastValidVotes !== null) {
+        console.log('Circuit breaker open, returning fallback snapshot');
+        io.sockets.emit('scores', JSON.stringify(lastValidVotes));
+        return;
       }
-    }
-  );
+
+      console.error('Error performing query: ' + err);
+    });
 }
 
-function collectVotesFromResult(result) {
-  var votes = { a: 0, b: 0 };
+function parseEnvInt(key, fallback) {
+  var raw = process.env[key];
+  if (!raw) {
+    return fallback;
+  }
 
-  result.rows.forEach(function (row) {
-    votes[row.vote] = parseInt(row.count);
-  });
+  var parsed = parseInt(raw, 10);
+  if (Number.isNaN(parsed)) {
+    return fallback;
+  }
 
-  return votes;
+  return parsed;
 }
 
 app.use(cookieParser());
