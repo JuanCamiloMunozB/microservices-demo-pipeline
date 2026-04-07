@@ -21,3 +21,4 @@
 /browser_screenshots
 
 **/.env
+**/result/node_modules

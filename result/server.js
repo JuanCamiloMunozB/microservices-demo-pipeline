@@ -1,5 +1,4 @@
 var express = require('express'),
-  async = require('async'),
   pg = require('pg'),
   path = require('path'),
   { ResultsRepository } = require('./results-repository'),
@@ -46,38 +45,19 @@ var resultsBreaker = new CircuitBreaker({
 
 var lastValidVotes = null;
 
-async.retry(
-  { times: 1000, interval: 1000 },
-  function (callback) {
-    pool.connect(function (err, client, done) {
-      if (err) {
-        console.error('Waiting for db', err);
-      }
-      callback(err, client);
-    });
-  },
-  function (err, client) {
-    if (err) {
-      console.error('Giving up');
-      return;
-    }
-    console.log('Connected to db');
+var resultsRepository = new ResultsRepository(pool);
 
-    var resultsRepository = new ResultsRepository(client);
+refreshScores(resultsRepository);
 
+startResultsUpdateConsumer({
+  kafkaBroker: KAFKA_BROKER,
+  resultsTopic: RESULTS_UPDATED_TOPIC,
+  onResultsUpdated: function () {
     refreshScores(resultsRepository);
-
-    startResultsUpdateConsumer({
-      kafkaBroker: KAFKA_BROKER,
-      resultsTopic: RESULTS_UPDATED_TOPIC,
-      onResultsUpdated: function () {
-        refreshScores(resultsRepository);
-      },
-    }).catch(function (consumerErr) {
-      console.error('Kafka consumer stopped', consumerErr);
-    });
-  }
-);
+  },
+}).catch(function (consumerErr) {
+  console.error('Kafka consumer stopped', consumerErr);
+});
 
 function refreshScores(resultsRepository) {
   resultsBreaker
