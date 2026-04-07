@@ -55,6 +55,8 @@ func main() {
 		log.Panic(err)
 	}
 
+	voteStore := NewVoteStore(db)
+
 	consumerMaster := getKafkaConsumer()
 	defer consumerMaster.Close()
 
@@ -82,7 +84,7 @@ func main() {
 				vote := string(msg.Value)
 				log.Printf("vote received: voterId=%s vote=%s", voterID, vote)
 
-				if err := storeVote(db, voterID, vote); err != nil {
+				if err := voteStore.SaveVote(voterID, vote); err != nil {
 					log.Panic(err)
 				}
 				log.Printf("vote persisted: voterId=%s vote=%s", voterID, vote)
@@ -120,12 +122,6 @@ func pingDatabase(db *sql.DB) {
 			return
 		}
 	}
-}
-
-func storeVote(db *sql.DB, voterID string, vote string) error {
-	insertDynStmt := `insert into "votes"("id", "vote") values($1, $2) on conflict(id) do update set vote = $2`
-	_, err := db.Exec(insertDynStmt, voterID, vote)
-	return err
 }
 
 func publishResultsUpdated(producer sarama.SyncProducer, voterID string, vote string) error {
