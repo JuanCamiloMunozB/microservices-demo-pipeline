@@ -2,6 +2,7 @@ var express = require('express'),
   async = require('async'),
   pg = require('pg'),
   path = require('path'),
+  { ResultsRepository } = require('./results-repository'),
   { startResultsUpdateConsumer } = require('./kafka-consumer'),
   cookieParser = require('cookie-parser'),
   methodOverride = require('method-override'),
@@ -50,13 +51,15 @@ async.retry(
     }
     console.log('Connected to db');
 
-    refreshScores(client);
+    var resultsRepository = new ResultsRepository(client);
+
+    refreshScores(resultsRepository);
 
     startResultsUpdateConsumer({
       kafkaBroker: KAFKA_BROKER,
       resultsTopic: RESULTS_UPDATED_TOPIC,
       onResultsUpdated: function () {
-        refreshScores(client);
+        refreshScores(resultsRepository);
       },
     }).catch(function (consumerErr) {
       console.error('Kafka consumer stopped', consumerErr);
@@ -64,30 +67,15 @@ async.retry(
   }
 );
 
-function refreshScores(client) {
-  client.query(
-    'SELECT vote, COUNT(id) AS count FROM votes GROUP BY vote',
-    [],
-    function (err, result) {
-      if (err) {
-        console.error('Error performing query: ' + err);
-      } else {
-        var votes = collectVotesFromResult(result);
-        io.sockets.emit('scores', JSON.stringify(votes));
-        console.log('Scores refreshed and emitted');
-      }
+function refreshScores(resultsRepository) {
+  resultsRepository.getVoteCounts(function (err, votes) {
+    if (err) {
+      console.error('Error performing query: ' + err);
+    } else {
+      io.sockets.emit('scores', JSON.stringify(votes));
+      console.log('Scores refreshed and emitted');
     }
-  );
-}
-
-function collectVotesFromResult(result) {
-  var votes = { a: 0, b: 0 };
-
-  result.rows.forEach(function (row) {
-    votes[row.vote] = parseInt(row.count);
   });
-
-  return votes;
 }
 
 app.use(cookieParser());
