@@ -22,6 +22,9 @@ var DB_USER = process.env.DB_USER || 'okteto';
 var DB_PASSWORD = process.env.DB_PASSWORD || 'okteto';
 var DB_NAME = process.env.DB_NAME || 'votes';
 var DATABASE_URL = process.env.DATABASE_URL || 'postgres://' + DB_USER + ':' + DB_PASSWORD + '@' + DB_HOST + ':' + DB_PORT + '/' + DB_NAME;
+var CB_FAILURE_THRESHOLD = parseEnvInt('CB_FAILURE_THRESHOLD', 3);
+var CB_OPEN_TIMEOUT_MS = parseEnvInt('CB_OPEN_TIMEOUT_MS', 15000);
+var CB_HALF_OPEN_SUCCESS_THRESHOLD = parseEnvInt('CB_HALF_OPEN_SUCCESS_THRESHOLD', 2);
 
 io.sockets.on('connection', function (socket) {
   socket.emit('message', { text: 'Welcome!' });
@@ -36,9 +39,9 @@ var pool = new pg.Pool({
 });
 
 var resultsBreaker = new CircuitBreaker({
-  failureThreshold: 3,
-  openTimeoutMs: 15000,
-  halfOpenSuccessThreshold: 2,
+  failureThreshold: CB_FAILURE_THRESHOLD,
+  openTimeoutMs: CB_OPEN_TIMEOUT_MS,
+  halfOpenSuccessThreshold: CB_HALF_OPEN_SUCCESS_THRESHOLD,
 });
 
 var lastValidVotes = null;
@@ -104,6 +107,20 @@ function refreshScores(resultsRepository) {
 
       console.error('Error performing query: ' + err);
     });
+}
+
+function parseEnvInt(key, fallback) {
+  var raw = process.env[key];
+  if (!raw) {
+    return fallback;
+  }
+
+  var parsed = parseInt(raw, 10);
+  if (Number.isNaN(parsed)) {
+    return fallback;
+  }
+
+  return parsed;
 }
 
 app.use(cookieParser());

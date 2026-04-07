@@ -12,11 +12,18 @@ type VoteStore struct {
 	sqlTimeout time.Duration
 }
 
-func NewVoteStore(db *sql.DB) *VoteStore {
+type VoteStoreConfig struct {
+	FailureThreshold         int
+	OpenTimeout              time.Duration
+	HalfOpenSuccessThreshold int
+	SQLOperationTimeout      time.Duration
+}
+
+func NewVoteStore(db *sql.DB, config VoteStoreConfig) *VoteStore {
 	return &VoteStore{
 		db:         db,
-		breaker:    NewCircuitBreaker(3, 15*time.Second, 2),
-		sqlTimeout: 3 * time.Second,
+		breaker:    NewCircuitBreaker(config.FailureThreshold, config.OpenTimeout, config.HalfOpenSuccessThreshold),
+		sqlTimeout: config.SQLOperationTimeout,
 	}
 }
 
