@@ -1,0 +1,67 @@
+name: Development Pipeline
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - vote/**
+      - worker/**
+      - result/**
+      - .github/workflows/dev-pipeline.yml
+      - scripts/ci/**
+  push:
+    branches:
+      - main
+      - feature/**
+      - bugfix/**
+    paths:
+      - vote/**
+      - worker/**
+      - result/**
+      - .github/workflows/dev-pipeline.yml
+      - scripts/ci/**
+
+jobs:
+  validate-vote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '22'
+
+      - name: Validate vote service
+        run: bash scripts/ci/validate-vote.sh
+
+  validate-worker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+
+      - name: Validate worker service
+        run: bash scripts/ci/validate-worker.sh
+
+  validate-result:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate result service
+        run: bash scripts/ci/validate-result.sh
