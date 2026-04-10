@@ -42,6 +42,10 @@ type voteResultsUpdatedEvent struct {
 	UpdatedAt string `json:"updatedAt"`
 }
 
+type voteSaver interface {
+	SaveVote(voterID string, vote string) error
+}
+
 func main() {
 	kingpin.Parse()
 
@@ -94,13 +98,14 @@ func main() {
 				vote := string(msg.Value)
 				log.Printf("vote received: voterId=%s vote=%s", voterID, vote)
 
-				if err := voteStore.SaveVote(voterID, vote); err != nil {
+				persisted, err := persistVoteAndPublishUpdate(voteStore, producer, voterID, vote)
+				if !persisted {
 					log.Printf("failed to persist vote: voterId=%s error=%v", voterID, err)
 					continue
 				}
 				log.Printf("vote persisted: voterId=%s vote=%s", voterID, vote)
 
-				if err := publishResultsUpdated(producer, voterID, vote); err != nil {
+				if err != nil {
 					log.Printf("failed to publish results update event: %v", err)
 				} else {
 					log.Printf("results update event published: voterId=%s topic=%s", voterID, resultsUpdatedTopic)
@@ -113,6 +118,18 @@ func main() {
 	}()
 	<-doneCh
 	log.Println("Processed", *messageCountStart, "messages")
+}
+
+func persistVoteAndPublishUpdate(store voteSaver, producer sarama.SyncProducer, voterID string, vote string) (bool, error) {
+	if err := store.SaveVote(voterID, vote); err != nil {
+		return false, err
+	}
+
+	if err := publishResultsUpdated(producer, voterID, vote); err != nil {
+		return true, err
+	}
+
+	return true, nil
 }
 
 func openDatabase() *sql.DB {

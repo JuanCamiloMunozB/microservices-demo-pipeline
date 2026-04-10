@@ -6,4 +6,5 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 cd "${ROOT_DIR}/result"
 npm ci
+npm test
 node --check server.js

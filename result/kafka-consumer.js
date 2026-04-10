@@ -30,30 +30,36 @@ async function startResultsUpdateConsumer(options) {
 
   await setup.consumer.run({
     eachMessage: async ({ message }) => {
-      let event = {};
-
-      if (message.value) {
-        try {
-          event = JSON.parse(message.value.toString());
-        } catch (err) {
-          console.error('Failed to parse results update event', err);
-          return;
-        }
-      }
-
-      if (event.type === 'VOTE_RESULTS_UPDATED') {
-        console.log('Results update event received');
-        try {
-          onResultsUpdated();
-        } catch (err) {
-          console.error('Failed to refresh scores after event', err);
-        }
-      }
+      handleResultsUpdateMessage(message, onResultsUpdated, console);
     },
   });
+}
+
+function handleResultsUpdateMessage(message, onResultsUpdated, logger) {
+  const activeLogger = logger || console;
+  let event = {};
+
+  if (message.value) {
+    try {
+      event = JSON.parse(message.value.toString());
+    } catch (err) {
+      activeLogger.error('Failed to parse results update event', err);
+      return;
+    }
+  }
+
+  if (event.type === 'VOTE_RESULTS_UPDATED') {
+    activeLogger.log('Results update event received');
+    try {
+      onResultsUpdated();
+    } catch (err) {
+      activeLogger.error('Failed to refresh scores after event', err);
+    }
+  }
 }
 
 module.exports = {
   createResultsUpdateConsumer,
   startResultsUpdateConsumer,
+  handleResultsUpdateMessage,
 };

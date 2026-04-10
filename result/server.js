@@ -1,8 +1,9 @@
 var express = require('express'),
   pg = require('pg'),
   path = require('path'),
+  { createResultsRefresher } = require('./results-refresher'),
   { ResultsRepository } = require('./results-repository'),
-  { CircuitBreaker, CircuitOpenError } = require('./circuit-breaker'),
+  { CircuitBreaker } = require('./circuit-breaker'),
   { startResultsUpdateConsumer } = require('./kafka-consumer'),
   cookieParser = require('cookie-parser'),
   methodOverride = require('method-override'),
@@ -43,51 +44,27 @@ var resultsBreaker = new CircuitBreaker({
   halfOpenSuccessThreshold: CB_HALF_OPEN_SUCCESS_THRESHOLD,
 });
 
-var lastValidVotes = null;
-
 var resultsRepository = new ResultsRepository(pool);
+var refreshScores = createResultsRefresher({
+  resultsBreaker: resultsBreaker,
+  resultsRepository: resultsRepository,
+  emitScores: function (votes) {
+    io.sockets.emit('scores', JSON.stringify(votes));
+  },
+  logger: console,
+});
 
-refreshScores(resultsRepository);
+refreshScores();
 
 startResultsUpdateConsumer({
   kafkaBroker: KAFKA_BROKER,
   resultsTopic: RESULTS_UPDATED_TOPIC,
   onResultsUpdated: function () {
-    refreshScores(resultsRepository);
+    refreshScores();
   },
 }).catch(function (consumerErr) {
   console.error('Kafka consumer stopped', consumerErr);
 });
-
-function refreshScores(resultsRepository) {
-  resultsBreaker
-    .execute(function () {
-      return new Promise(function (resolve, reject) {
-        resultsRepository.getVoteCounts(function (err, votes) {
-          if (err) {
-            reject(err);
-            return;
-          }
-
-          resolve(votes);
-        });
-      });
-    })
-    .then(function (votes) {
-      lastValidVotes = votes;
-      io.sockets.emit('scores', JSON.stringify(votes));
-      console.log('Scores refreshed and emitted');
-    })
-    .catch(function (err) {
-      if (err instanceof CircuitOpenError && lastValidVotes !== null) {
-        console.log('Circuit breaker open, returning fallback snapshot');
-        io.sockets.emit('scores', JSON.stringify(lastValidVotes));
-        return;
-      }
-
-      console.error('Error performing query: ' + err);
-    });
-}
 
 function parseEnvInt(key, fallback) {
   var raw = process.env[key];
