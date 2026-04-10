@@ -1,0 +1,130 @@
+name: Development Pipeline
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - vote/**
+      - worker/**
+      - result/**
+      - .github/workflows/dev-pipeline.yml
+      - scripts/ci/**
+  push:
+    branches:
+      - main
+      - feature/**
+      - bugfix/**
+    paths:
+      - vote/**
+      - worker/**
+      - result/**
+      - .github/workflows/dev-pipeline.yml
+      - scripts/ci/**
+
+jobs:
+  validate-vote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '22'
+
+      - name: Validate vote service
+        run: bash scripts/ci/validate-vote.sh
+
+  validate-worker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+
+      - name: Validate worker service
+        run: bash scripts/ci/validate-worker.sh
+
+  validate-result:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate result service
+        run: bash scripts/ci/validate-result.sh
+
+  build-images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    needs:
+      - validate-vote
+      - validate-worker
+      - validate-result
+    strategy:
+      matrix:
+        service:
+          - vote
+          - worker
+          - result
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image metadata
+        id: meta
+        shell: bash
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          branch_name="${GITHUB_REF_NAME}"
+          branch_sanitized="$(echo "${branch_name}" | tr '/[:space:]' '--')"
+          owner_lower="${GITHUB_REPOSITORY_OWNER,,}"
+          image="ghcr.io/${owner_lower}/microservices-demo/${{ matrix.service }}"
+
+          tags="${image}:sha-${short_sha}
+          ${image}:branch-${branch_sanitized}"
+
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            tags="${tags}
+            ${image}:latest"
+          fi
+
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tags<<EOF"
+            echo "${tags}" | sed 's/^ *//'
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and publish ${{ matrix.service }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.service }}
+          file: ./${{ matrix.service }}/Dockerfile
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
