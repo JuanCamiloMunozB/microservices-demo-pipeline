@@ -6,19 +6,18 @@
 **Taller:** Taller 1 - Construcción de Pipelines en Cloud
 **Integrantes:**
 
-* Julio Antonio Prado
-* Juan Camilo Muñoz
+* Julio Antonio Prado (Operaciones)
+* Juan Camilo Muñoz (Desarrollo)
 
 **Docente:** Nicolas Echeverry
 **Fecha de entrega:** 13 de abril
 **Período académico:** 2026-1
 
----
 
 # 2. Tabla de contenido
 
 1. [Introducción](#3-introducción)
-2. [Descripción del sistema base](#4-descripción-del-sistema-base)
+2. [Descripción del repositorio base](#4-descripción-del-repositorio-base)
 3. [Metodología ágil seleccionada](#5-metodología-ágil-seleccionada)
 4. [Estrategia de branching para desarrollo](#6-estrategia-de-branching-para-desarrollo)
 5. [Estrategia de branching para operaciones](#7-estrategia-de-branching-para-operaciones)
@@ -27,13 +26,12 @@
 8. [Pipeline de desarrollo](#10-pipeline-de-desarrollo)
 9. [Pipeline de infraestructura](#11-pipeline-de-infraestructura)
 10. [Implementación de la infraestructura](#12-implementación-de-la-infraestructura)
----
 
 # 3. Introducción
 
 Este informe presenta el desarrollo del Taller 1 sobre construcción de pipelines en cloud a partir del repositorio `okteto/microservices-demo`, una aplicación distribuida de demostración compuesta por una interfaz de voto, Kafka, un servicio de procesamiento, PostgreSQL y una aplicación de resultados, con el objetivo de integrar decisiones de desarrollo y operaciones bajo un enfoque DevOps. En función de los criterios del enunciado, el trabajo abarca la selección de una metodología ágil, la definición de estrategias de branching para desarrollo y operaciones, la elección de patrones de diseño en la nube, la elaboración del diagrama de arquitectura y la preparación de la base técnica que soporta la automatización, la trazabilidad y el despliegue. En esta parte del informe se desarrollan específicamente la contextualización del sistema, la metodología de trabajo, la organización del equipo, las estrategias de branching, la selección de patrones y la arquitectura propuesta, como fundamento para las secciones posteriores dedicadas a pipelines, infraestructura, implementación y demostración del pipeline.
 
-# 4. Descripción del sistema base
+# 4. Descripción del repositorio base
 
 ## 4.1 Repositorio seleccionado
 
@@ -53,7 +51,6 @@ A partir del análisis del repositorio y de la arquitectura base, se identificar
 
 El flujo observado en el repositorio puede resumirse de la siguiente manera: el usuario interactúa con la aplicación de voto; el voto es enviado como mensaje al broker Kafka; el servicio `worker` consume el mensaje y registra el resultado en PostgreSQL; finalmente, la aplicación de resultados consulta la base de datos usando polling y muestra el estado actualizado.
 
----
 
 # 5. Metodología ágil seleccionada
 
@@ -136,7 +133,6 @@ La aplicación de Kanban se basó en un tablero con flujo explícito y política
 17. **[Operaciones] Validar el entorno desplegado con foco en conectividad, disponibilidad y ejecución del flujo completo de voto**
     Verificar que el sistema permita votar, procesar el evento, persistir el resultado y mostrar la actualización correspondiente.
 
----
 
 # 6. Estrategia de branching para desarrollo
 
@@ -150,7 +146,9 @@ La estrategia adoptada para desarrollo se definió así:
 
 * `main`: rama estable del proyecto, siempre en estado desplegable o integrable.
 * `feature/<nombre-cambio>`: ramas cortas para nuevas funcionalidades o ajustes visibles.
-* `bugfix/<nombre-release>`: ramas cortas para corrección de defectos.
+* `bugfix/<nombre-cambio>`: ramas cortas para corrección de defectos.
+
+En el historial del repositorio se observan ramas como `feature/dev-pipeline-base`, `feature/circuit-breaker-postgres` y `feature/pubsub-results-events`, integradas luego a `main`.
 
 ## 6.3 Flujo de trabajo
 
@@ -175,7 +173,6 @@ Se definieron las siguientes reglas para fusionar cambios hacia `main`:
 * No se integran ramas con errores de compilación, pruebas fallidas o inconsistencias evidentes con el diseño.
 * Los cambios de documentación pueden seguir un flujo más ligero, pero deben conservar trazabilidad.
 
----
 
 # 7. Estrategia de branching para operaciones
 
@@ -220,7 +217,6 @@ Para evitar inconsistencias, se definieron estas reglas:
 * Los cambios sobre infraestructura deben conservar trazabilidad respecto al problema que resuelven.
 * Los scripts y manifiestos deben tratarse como código y quedar bajo control de versiones, con revisión técnica antes de su promoción.
 
----
 
 # 8. Patrones de diseño en la nube
 
@@ -254,6 +250,24 @@ Estos componentes se añadieron para representar explícitamente el flujo de pub
 
 El principal beneficio es la **eliminación del polling continuo desde `result-application` hacia la base de datos**. En lugar de consultar repetidamente PostgreSQL para verificar si el conteo cambió, el sistema ahora recibe una notificación cuando existe una actualización relevante. Esto reduce carga innecesaria sobre la base de datos, disminuye el acoplamiento temporal entre la lectura y la persistencia, y hace más clara la orientación asíncrona de la arquitectura.
 
+### 8.2.5 Implementación actual en el repositorio
+
+La implementación actual de Publisher and Subscriber está concentrada en dos puntos concretos. En `worker/main.go`, el ciclo que procesa `consumer.Messages()` toma `msg.Key` y `msg.Value`, persiste el voto mediante `persistVoteAndPublishUpdate(...)` y luego publica el evento con `publishResultsUpdated(...)`. Ese evento se construye con la estructura `voteResultsUpdatedEvent` e incluye explícitamente `type`, `source`, `voterId`, `vote` y `updatedAt`; el `type` se fija como `VOTE_RESULTS_UPDATED` y el tópico destino se resuelve desde `RESULTS_UPDATED_TOPIC` (por defecto `vote-results-updated`).
+
+En `result/server.js`, el arranque del servicio ejecuta `startResultsUpdateConsumer(...)` con `resultsTopic` y un callback `onResultsUpdated` que invoca `refreshScores()`. Dentro de `result/kafka-consumer.js`, la función `handleResultsUpdateMessage(...)` parsea el mensaje y solo dispara el callback cuando `event.type === 'VOTE_RESULTS_UPDATED'`; mensajes inválidos o de otro tipo se descartan. Esto deja el flujo reactivo conectado de extremo a extremo: publicación en `worker`, suscripción en `result` y refresco inmediato de conteos.
+
+### 8.2.6 Archivos del repositorio relacionados
+
+* [worker/main.go](../worker/main.go)
+* [worker/worker_flow_test.go](../worker/worker_flow_test.go)
+* [result/server.js](../result/server.js)
+* [result/kafka-consumer.js](../result/kafka-consumer.js)
+* [result/kafka-consumer.test.js](../result/kafka-consumer.test.js)
+
+### 8.2.6 Diagrama de secuencia del patrón Publisher and Subscriber
+
+![Diagrama de secuencia - Publisher and Subscriber](./images/PubSubSequenceDiagram.png)
+
 ## 8.3 Patrón 2: Circuit Breaker
 
 ### 8.3.1 Problema identificado
@@ -277,7 +291,30 @@ La decisión de representarlos como componentes internos y no como un nodo centr
 
 El beneficio esperado es doble. En `result-app`, el patrón evita insistir sobre PostgreSQL cuando el sistema de lectura se encuentra degradado. En `worker`, protege la ruta de escritura cuando la base de datos no puede absorber correctamente las inserciones. En ambos casos, el patrón mejora la resiliencia del sistema y hace visible una preocupación de tolerancia a fallos dentro del diseño.
 
----
+### 8.3.5 Implementación actual en el repositorio
+
+La implementación actual de Circuit Breaker se ve de forma explícita en ambos servicios. En `worker/main.go`, `NewVoteStore(...)` recibe `VoteStoreConfig` con valores de `CB_FAILURE_THRESHOLD`, `CB_OPEN_TIMEOUT_MS`, `CB_HALF_OPEN_SUCCESS_THRESHOLD` y `DB_OPERATION_TIMEOUT_MS`. En `worker/store.go`, `SaveVote(...)` ejecuta el `INSERT ... ON CONFLICT` dentro de `breaker.Execute(...)` y usa `ExecContext(...)` con `context.WithTimeout(...)` para que un timeout de base de datos cuente como fallo del circuito. La máquina de estados (`Closed`, `Open`, `HalfOpen`) y las transiciones con fast-fail están implementadas en `worker/breaker.go`.
+
+En `result/server.js`, se instancia `new CircuitBreaker(...)` con los mismos parámetros de entorno y se delega la lectura en `createResultsRefresher(...)`. En `result/results-refresher.js`, `refreshScores()` ejecuta `resultsRepository.getVoteCounts(...)` dentro de `resultsBreaker.execute(...)`; si recibe `CircuitOpenError` y existe `lastValidVotes`, emite ese snapshot por `emitScores(...)` como fallback. Esta lógica evita caída total del servicio y mantiene respuesta para el frontend durante ventanas de degradación.
+
+### 8.3.6 Archivos del repositorio relacionados
+
+* [worker/breaker.go](../worker/breaker.go)
+* [worker/store.go](../worker/store.go)
+* [worker/main.go](../worker/main.go)
+* [worker/worker_flow_test.go](../worker/worker_flow_test.go)
+* [result/circuit-breaker.js](../result/circuit-breaker.js)
+* [result/results-refresher.js](../result/results-refresher.js)
+* [result/results-refresher.test.js](../result/results-refresher.test.js)
+
+### 8.3.6 Diagrama de secuencia del patrón Circuit Breaker
+
+#### Flujo de escritura en `worker` con Circuit Breaker
+![Diagrama de secuencia - Circuit Breaker en worker](./images/CircuitBreakerWorker.png)
+
+#### Flujo de lectura en `result` con Circuit Breaker
+![Diagrama de secuencia - Circuit Breaker en result](./images/CircuitBreakerResult.png)
+
 
 # 9. Diagrama de arquitectura
 
@@ -285,7 +322,27 @@ El diagrama final representa el sistema como un conjunto de unidades de desplieg
 
 La arquitectura definida materializa directamente los dos patrones seleccionados. Publisher and Subscriber queda visible en la relación entre `ResultsUpdatePublisher`, `KafkaBroker`, `VoteResultsEventTopic` y `ResultsUpdateSubscriber`, lo que permite notificar cambios de estado sin acoplar `worker` con `result-application`. Circuit Breaker aparece mediante los componentes `ResultDbCircuitBreaker` y `WorkerDbCircuitBreaker`, ubicados del lado cliente en las rutas de lectura y escritura hacia PostgreSQL, con el fin de contener fallos o latencia persistente de la base de datos. De esta manera, el diagrama no solo describe la estructura del sistema, sino que también evidencia cómo las decisiones arquitectónicas se traducen en componentes concretos que soportan resiliencia, desacoplamiento y preparación para automatización.
 
-![Diagrama de arquitectura](./image/Taller%201%20-%20Diagrama%20de%20Arquitectura-Diagrama%20con%20patrones.drawio.png)
+![Diagrama de arquitectura](./images/Taller%201%20-%20Diagrama%20de%20Arquitectura-Diagrama%20con%20patrones.drawio.png)
+
+
+## 9.1 Mapeo del diagrama de despliegue a la implementación real
+
+Para que la relación entre arquitectura y código sea verificable, el mapeo se presenta por componente del diagrama y su implementación concreta en el repositorio.
+
+* **`VotingUI` (voting-application)**: plantilla web de voto en `vote/src/main/resources/templates/index.html`. El formulario `method="POST" action="/"` materializa la interacción `postVote` del diagrama.
+* **`VotingController` (voting-application)**: clase `VoteController` en `vote/src/main/java/com/okteto/vote/controller/VoteController.java`. `index(...)` atiende la carga de la vista (`renderVoteForm`) y `postForm(...)` procesa el voto (`postVote`).
+* **`PendingVoteProducer` (voting-application)**: en `VoteController.postForm(...)`, la llamada `kafkaTemplate.send(kafkaTopic, voter, vote)` implementa `sendVote`. La configuración del productor está en `vote/src/main/java/com/okteto/vote/kafka/KafkaProducerConfig.java`.
+* **`KafkaBroker` + `PendingVotesTopic` (kafka)**: el tópico de entrada se define por `PENDING_VOTES_TOPIC` (default `votes`) y se consume en `worker/main.go` con `ConsumePartition(*topic, ...)`, representando `consumePendingVote`.
+* **`PendingVoteConsumer` (worker)**: `worker/main.go` recibe mensajes en el bloque `case msg := <-consumer.Messages()` y extrae `msg.Key`/`msg.Value`.
+* **`Worker` (worker)**: la orquestación principal está en `persistVoteAndPublishUpdate(...)`, que separa persistencia de voto y publicación del evento de actualización.
+* **`ResultsUpdatePublisher` + `VoteResultsEventTopic` (worker/kafka)**: `publishResultsUpdated(...)` en `worker/main.go` construye el evento `VOTE_RESULTS_UPDATED` y publica en `RESULTS_UPDATED_TOPIC` (default `vote-results-updated`), que corresponde a `publishResultUpdatedEvent`.
+* **`WorkerDbCircuitBreaker` (worker)**: implementado en `worker/breaker.go` (`CircuitBreaker.Execute(...)`) y aplicado en `worker/store.go` dentro de `VoteStore.SaveVote(...)`.
+* **`WorkerDbClient` (worker)**: acceso a PostgreSQL en `worker/store.go` mediante `db.ExecContext(...)` con `INSERT ... ON CONFLICT` sobre la tabla `votes`.
+* **`VoteResultsServer` (result-application)**: servidor Express/Socket.IO en `result/server.js`; expone `/`, inicializa `refreshScores()` y emite resultados por socket.
+* **`ResultsUpdateSubscriber` (result-application)**: suscripción Kafka en `result/kafka-consumer.js` con `startResultsUpdateConsumer(...)`; `handleResultsUpdateMessage(...)` filtra por `event.type === 'VOTE_RESULTS_UPDATED'` y dispara `notifyResultsUpdated`.
+* **`ResultDbCircuitBreaker` (result-application)**: instancia de `CircuitBreaker` en `result/server.js`, usada por `createResultsRefresher(...)` en `result/results-refresher.js` para envolver la lectura.
+* **`ResultDbClient` (result-application)**: `ResultsRepository` en `result/results-repository.js`, donde `getVoteCounts(...)` ejecuta la consulta SQL de agregación por voto.
+* **`VoteResultsUI` (result-application)**: interfaz en `result/views/index.html` y lógica en `result/views/app.js`; `socket.on('scores', ...)` implementa `renderUpdatedResults`.
 
 # 10. Pipeline de desarrollo
 
@@ -315,19 +372,59 @@ La sexta etapa es la **emisión del resultado del build**. El pipeline debe prod
 
 ## 10.4 Herramientas y organización de archivos
 
-Una implementación coherente para este proyecto puede utilizar GitHub Actions como motor de automatización, dado que el código reside en GitHub y el flujo de ramas de desarrollo ya fue planteado sobre esa plataforma. El pipeline puede residir en un archivo como `.github/workflows/dev-pipeline.yml`, acompañado por scripts de apoyo organizados en una carpeta `scripts/ci/`. Esta carpeta puede contener un script de validación por servicio y un script general de build, de modo que el pipeline delegue acciones concretas a comandos versionados y reutilizables.
+El pipeline de desarrollo se apoya en GitHub Actions como orquestador y en scripts de validación por servicio para mantener una separación clara de responsabilidades. Conceptualmente, esta organización divide el flujo en tres capas: validación técnica de cada componente, construcción de artefactos y publicación de imágenes.
 
-A nivel de estructura, el repositorio conserva sus carpetas base `vote`, `worker`, `result` e `infrastructure`, y se le añade únicamente la capa de automatización. Esta organización resulta especialmente adecuada porque la separación ya existente entre servicios facilita que el pipeline trate cada uno como una unidad de build independiente.
+La carpeta `scripts/ci/` cumple el rol de estandarizar cómo se valida cada servicio según su stack, mientras el workflow central coordina orden, dependencias y resultados. Esta combinación permite que la lógica del pipeline sea mantenible y trazable: el archivo de workflow describe el proceso de CI/CD y los scripts encapsulan las reglas de validación de aplicación.
 
 ## 10.5 Artefactos generados y trazabilidad
 
-Los artefactos generados por el pipeline de desarrollo son tres imágenes de contenedor: una para `vote`, una para `worker` y una para `result`. Cada una debe quedar publicada con un tag trazable, por ejemplo `sha-<commit>`, y acompañarse de metadatos que permitan saber qué versión se produjo, cuándo se produjo y a partir de qué rama se generó. Esa información es necesaria no solo para despliegue, sino también para sustentar el taller, ya que permite demostrar que existe correspondencia entre el cambio de código, el build y la versión finalmente desplegada.
+Los artefactos del pipeline son tres imágenes de contenedor, una por servicio de aplicación (`vote`, `worker`, `result`), publicadas en GHCR cuando el flujo corresponde a integración efectiva. La trazabilidad se basa en tres tipos de etiqueta: una etiqueta por commit (`sha-...`) para identificar la versión exacta del cambio, una etiqueta por rama (`branch-...`) para seguir la evolución del trabajo en curso y una etiqueta `latest` únicamente para la rama principal.
 
-## 10.6 Evidencia de funcionamiento
+Este esquema permite separar identificación técnica y uso operativo. La etiqueta por commit sostiene auditoría y reproducibilidad; la etiqueta por rama facilita seguimiento durante desarrollo; y la etiqueta `latest` se reserva como referencia de la versión más reciente integrada en `main`. En conjunto, estas etiquetas conectan de forma explícita el resultado del build con el despliegue posterior.
 
-[Poner imagen aqui después de ejecutar el pipeline]
+## 10.6 Pruebas realizadas para validación del comportamiento
 
----
+En esta implementación se incluyó una base de pruebas para validar comportamiento, aun cuando el taller no lo exigía de forma explícita. La decisión responde a un criterio de ingeniería de software y de prácticas CI/CD: un pipeline de desarrollo no debe limitarse a compilar y empaquetar, también debe verificar que el sistema preserve el comportamiento esperado después de cada cambio.
+
+Desde esa perspectiva, las pruebas funcionan como evidencia técnica previa a la promoción de artefactos. Su propósito no es aumentar complejidad, sino reducir riesgo de regresiones en los flujos que sostienen la arquitectura final: procesamiento de votos, actualización reactiva de resultados y tolerancia a fallos frente a base de datos.
+
+### 10.6.1 Escenarios de validación cubiertos
+
+1. **Servicio `result`**
+   1. **Actualización por evento válido**: se valida que, cuando llega un evento `VOTE_RESULTS_UPDATED`, el servicio ejecute el refresco de resultados. Este caso confirma que el flujo reactivo de resultados responde al evento de dominio correcto.
+   2. **Filtrado de mensajes no válidos**: se valida que mensajes mal formados o eventos de otro tipo no disparen actualización. Este caso evita refrescos falsos y protege la estabilidad del consumidor frente a ruido en el tópico.
+   3. **Apertura del Circuit Breaker en lectura**: se valida que, ante fallos consecutivos de base de datos, el circuito pase a estado abierto. Este comportamiento es clave para evitar reintentos costosos durante una degradación sostenida.
+   4. **Continuidad con snapshot en circuito abierto**: se valida que, si ya existe un último estado válido y el circuito está abierto, el servicio use ese snapshot como respuesta de continuidad sin insistir en una consulta que seguirá fallando.
+   5. **Recuperación controlada del Circuit Breaker**: se valida la transición de `OPEN` a `HALF_OPEN` y luego a `CLOSED` cuando la dependencia se recupera. Este caso demuestra que la estrategia no solo bloquea, también restablece operación normal de forma progresiva.
+
+2. **Servicio `worker`**
+   1. **Persistencia exitosa seguida de publicación**: se valida que, cuando el voto se persiste correctamente, se publique exactamente un evento de actualización con información de dominio consistente (`type`, `source`, `voterId`, `vote`, `updatedAt`). Este caso asegura coherencia entre procesamiento interno y notificación externa.
+   2. **No publicación ante fallo de persistencia**: se valida que, si la persistencia falla, no se publique evento de actualización. Este comportamiento evita propagar al ecosistema una actualización que realmente no quedó consolidada en base de datos.
+   3. **Apertura y fast-fail del Circuit Breaker en escritura**: se valida que, tras fallos consecutivos en escritura, el circuito se abra y rechace rápidamente nuevas operaciones mientras permanezca en ese estado.
+
+3. **Servicio `vote`**
+   No se incorporaron casos de prueba específicos para `vote`, porque el objetivo de esta base de validación fue comprobar el comportamiento de los patrones introducidos (Publisher/Subscriber y Circuit Breaker), implementados y ejercidos principalmente en `worker` y `result`.
+
+## 10.7 Implementación del pipeline de desarrollo en el repositorio
+
+La implementación del pipeline está organizada en cuatro jobs que reflejan el flujo del proyecto: `validate-vote`, `validate-worker`, `validate-result` y `build-images`. Los tres primeros funcionan como compuertas de calidad por servicio y ejecutan scripts dedicados en `scripts/ci/`, con validaciones acordes a cada stack. En términos prácticos, `vote` valida su capacidad de build, `worker` valida compilación y pruebas, y `result` valida instalación de dependencias, pruebas y verificación sintáctica.
+
+El job `build-images` depende de la finalización exitosa de esas validaciones y construye imágenes de forma homogénea para `vote`, `worker` y `result` mediante una estrategia matricial. Antes de construir, calcula metadatos de imagen a partir de commit y rama para producir las etiquetas operativas (`sha`, `branch` y `latest` en `main`). Con esto, la salida del pipeline no es solo una imagen construida, sino una imagen identificable y utilizable en promoción posterior.
+
+En cuanto a publicación, el pipeline diferencia claramente validación de promoción: en `pull_request` construye para verificar integrabilidad, pero no publica; en eventos `push` sí habilita autenticación y publicación a GHCR. Esta separación soporta el modelo de branching definido en el informe, porque permite validar cambios de `feature/*` y `bugfix/*` sin perder trazabilidad y, al mismo tiempo, publicar artefactos cuando el cambio entra al flujo de integración.
+
+Finalmente, la lógica de scripts mantiene el pipeline desacoplado de detalles de lenguaje. El workflow coordina dependencias y resultados, mientras cada script encapsula su criterio técnico de validación. Esta estructura facilita mantenimiento, evolución y reproducibilidad local del mismo proceso que corre en CI.
+
+## 10.8 Archivos del repositorio relacionados
+
+* [.github/workflows/dev-pipeline.yml](../.github/workflows/dev-pipeline.yml)
+* [scripts/ci/validate-vote.sh](../scripts/ci/validate-vote.sh)
+* [scripts/ci/validate-worker.sh](../scripts/ci/validate-worker.sh)
+* [scripts/ci/validate-result.sh](../scripts/ci/validate-result.sh)
+* [vote/Dockerfile](../vote/Dockerfile)
+* [worker/Dockerfile](../worker/Dockerfile)
+* [result/Dockerfile](../result/Dockerfile)
+
 
 # 11. Pipeline de infraestructura
 
@@ -374,7 +471,6 @@ La trazabilidad entre el pipeline de desarrollo y el pipeline de infraestructura
 ## 11.8 Evidencia de funcionamiento
 
 [Poner imagen aqui después de ejecutar el pipeline]
----
 
 # 12. Implementación de la infraestructura
 
