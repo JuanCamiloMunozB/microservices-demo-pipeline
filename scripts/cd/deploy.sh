@@ -21,5 +21,5 @@ printf '%s' \"$ENV_VOTE\" > \"$vote_directory/.env\"
 printf '%s' \"$ENV_RESULT\" > \"$result_directory/.env\"
 "
 
-ssh -o StrictHostKeyChecking=no -i $ssh_key_location $user@$IP "cd $app_directory && docker compose -f $app_directory/docker-compose-deploy.yml up -d --build"
+ssh -o StrictHostKeyChecking=no -i $ssh_key_location $user@$IP "cd $app_directory && IMAGE_TAG=$IMAGE_TAG docker compose -f $app_directory/docker-compose-deploy.yml up -d --pull always"
 
