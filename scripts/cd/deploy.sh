@@ -15,6 +15,7 @@ for dir in '$worker_directory' '$vote_directory' '$result_directory'; do
   mkdir -p \"\$dir\"
 done
 
+printf '%s' \"$ENV\" > \"$app_directory/.env\"
 printf '%s' \"$ENV_WORKER\" > \"$worker_directory/.env\"
 printf '%s' \"$ENV_VOTE\" > \"$vote_directory/.env\"
 printf '%s' \"$ENV_RESULT\" > \"$result_directory/.env\"

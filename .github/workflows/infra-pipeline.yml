@@ -75,6 +75,7 @@ jobs:
           ENV_WORKER: ${{ secrets.ENV_WORKER }}
           ENV_VOTE: ${{ secrets.ENV_VOTE }}
           ENV_RESULT: ${{ secrets.ENV_RESULT }}
+          ENV: ${{ secrets.ENV }}
         run: bash scripts/cd/deploy.sh
 
       - name: Test
