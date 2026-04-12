@@ -66,7 +66,7 @@ jobs:
       - name: Setup SSH key
         env:
           SSH_KEY: ${{ steps.ctx.outputs.branch == 'production' && secrets.PROD_KEY || secrets.STAGING_KEY }}
-        run: bash scripts/cd/setup-ssh.sh
+        run: bash scripts/cd/setup_ssh.sh
 
       - name: Deploy
         env:
