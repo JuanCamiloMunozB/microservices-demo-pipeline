@@ -6,9 +6,9 @@ check() {
   echo "Testing $IP:$PORT ..."
 
   if curl -f --max-time 5 "$IP:$PORT/" >/dev/null; then
-    echo "Port $IP is OK"
+    echo "Port $PORT is OK"
   else
-    echo "Port $IP FAILED"
+    echo "Port $PORT FAILED"
     exit 1
   fi
 }
