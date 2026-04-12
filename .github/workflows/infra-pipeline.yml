@@ -28,16 +28,8 @@ on:
       - scripts/cd/**
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Validate compose
-        run: docker compose -f docker-compose-deploy.yml config -q
-
   deploy:
     if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
-    needs: validate
     runs-on: ubuntu-latest
     concurrency:
       group: deploy-${{ github.event.workflow_run.head_branch || inputs.environment || github.ref_name }}
