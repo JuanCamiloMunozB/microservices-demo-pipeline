@@ -358,7 +358,7 @@ El pipeline de desarrollo se ejecuta ante cambios en ramas funcionales o solicit
 
 ## 10.3 Etapas del pipeline de desarrollo
 
-La primera etapa corresponde a la **obtención del código**. En esta fase se hace checkout de la rama objetivo y se resuelve el contexto de ejecución del pipeline. A partir de ahí se activa la capa de validación.
+La primera etapa corresponde a la **obtención del código**. En esta fase se hace checkout de la rama objetivo y se resuelve el contexto de ejecución del pipeline. A partir de ahí se activa la capa de validaciónF.
 
 La segunda etapa es la **validación técnica de los servicios**. Dado que el proyecto combina varias tecnologías, esta fase se adapta al contexto de cada servicio. Para `vote`, el pipeline debe ejecutar su proceso de build o validación propia del stack Java; para `worker`, debe verificar que el servicio Go compile correctamente; y para `result`, debe instalar dependencias y comprobar que el servicio Node.js sea construible o ejecutable. La intención de esta etapa no es realizar una batería extensa de pruebas funcionales, sino asegurar que el cambio introducido no rompa la capacidad básica de construir los tres servicios.
 
@@ -424,94 +424,121 @@ Finalmente, la lógica de scripts mantiene el pipeline desacoplado de detalles d
 * [vote/Dockerfile](../vote/Dockerfile)
 * [worker/Dockerfile](../worker/Dockerfile)
 * [result/Dockerfile](../result/Dockerfile)
+* [.github/workflows/infra-pipeline.yml](../.github/workflows/infra-pipeline.yml)
+* [docker-compose-deploy.yml](../docker-compose-deploy.yml)
+* [scripts/ci/bootstrap.sh](../scripts/cd/bootstrap.sh)
+* [scripts/ci/setup_ssh.sh](../scripts/cd/setup_ssh.sh)
+* [scripts/ci/deploy.sh](../scripts/cd/deploy.sh)
+* [scripts/ci/test_deploy.sh](../scripts/cd/test_deploy.sh)
 
 
 # 11. Pipeline de infraestructura
 
 ## 11.1 Objetivo del pipeline de infraestructura
 
-El pipeline de infraestructura se diseñó para tomar las imágenes generadas por el pipeline de desarrollo y convertirlas en un sistema desplegado y operativo, compuesto por PostgreSQL, Kafka, `vote`, `worker` y `result`. Su función principal es automatizar la validación de manifiestos y configuraciones operativas, inyectar los artefactos correctos en el despliegue y aplicar la infraestructura necesaria para que la solución definida en la arquitectura pueda ejecutarse. En otras palabras, este pipeline no produce software nuevo; consume artefactos ya construidos y los promueve a un entorno real de ejecución.
+El pipeline de infraestructura está diseñado para tomar las imágenes generadas por el pipeline de desarrollo y desplegarlas como un sistema completamente operativo compuesto por PostgreSQL, Kafka, y los servicios vote, worker y result. Su objetivo principal es automatizar la promoción de artefactos ya construidos hacia entornos de staging y producción, asegurando que la infraestructura definida en la arquitectura se materialice de forma consistente y reproducible.
+
+Este pipeline no construye software nuevo, sino que orquesta su despliegue: resuelve el tag correcto de las imágenes, inyecta la configuración necesaria por entorno y se conecta al servidor destino vía SSH para levantar y ejecutar los contenedores usando Docker Compose, asegurando que todo el sistema quede en ejecución de forma coordinada.
 
 ## 11.2 Rol dentro del flujo DevOps
 
-Dentro del flujo general, el pipeline de infraestructura representa la parte operativa del ciclo DevOps. Mientras el pipeline de desarrollo responde a la pregunta de si el software quedó correctamente construido, este segundo pipeline responde a si ese software puede ser desplegado y ejecutado en el entorno objetivo bajo una configuración consistente. El nexo entre ambos pipelines se mantiene mediante los tags de imágenes publicados por desarrollo. El pipeline de infraestructura no debe desplegar versiones elegidas manualmente, sino leer la salida del build anterior e inyectar exactamente esas imágenes en los manifiestos del entorno.
+Dentro del flujo general, el pipeline de infraestructura representa la parte operativa del ciclo DevOps. Mientras el pipeline de desarrollo responde a la pregunta de si el software quedó correctamente construido, este segundo pipeline responde a si ese software puede ser desplegado y ejecutado en el entorno objetivo bajo una configuración consistente. El nexo entre ambos pipelines se mantiene mediante los tags de imágenes publicados por desarrollo. 
 
 ## 11.3 Etapas del pipeline de infraestructura
 
-La primera etapa corresponde a la **validación de manifiestos y configuración**. Antes de desplegar cualquier recurso, el pipeline debe verificar que los archivos operativos son sintácticamente correctos, que contienen referencias válidas a imágenes y que las variables obligatorias están presentes. Dado que este proyecto depende de servicios interconectados, esta fase también debe revisar que existan valores coherentes para conectividad entre `vote`, `worker`, `result`, Kafka y PostgreSQL.
+La primera etapa corresponde a la preparación del contexto de despliegue. Antes de ejecutar cualquier acción, el pipeline resuelve el entorno objetivo (staging o production), determina el tag de imagen correspondiente y carga las credenciales y variables necesarias para ese ambiente.
 
-La segunda etapa es la **resolución de artefactos provenientes del pipeline de desarrollo**. Aquí el pipeline toma como entrada la salida del build y obtiene los tags exactos de las imágenes de `vote`, `worker` y `result`. El despliegue no debe usar imágenes “por defecto” ni versiones elegidas manualmente, sino consumir de manera trazable la versión construida por desarrollo.
+La segunda etapa es la obtención de los artefactos generados por el pipeline de desarrollo. En este punto se toma la salida del build y se identifican los tags exactos de las imágenes de vote, worker y result, asegurando que el despliegue utilice versiones trazables y no referencias implícitas o manuales.
 
-La tercera etapa es el **aprovisionamiento o actualización de infraestructura base**. En este proyecto, el orden recomendado es desplegar primero PostgreSQL y Kafka, porque ambos constituyen dependencias de los servicios de aplicación. Luego se despliegan `vote`, `worker` y `result`, configurados para apuntar al broker y a la base de datos correspondientes.
+La tercera etapa es la conexión al servidor y ejecución del despliegue remoto. El pipeline se conecta vía SSH a la instancia correspondiente del entorno y actualiza el docker-compose-deploy.yml para que apunte a las imágenes correctas generadas en el pipeline de desarrollo. Luego ejecuta los comandos necesarios para levantar o recrear los contenedores con Docker Compose, dejando los servicios en ejecución.
 
-La cuarta etapa es la **aplicación de configuraciones por ambiente**. El pipeline debe tratar el ambiente como un conjunto de parámetros de entrada y no como una copia separada del proceso. Por ello, resulta apropiado centralizar valores de entorno, direcciones, credenciales referenciadas y tags de imagen en archivos de values o variables de entorno por ambiente. De esta manera, el mismo pipeline puede operar sobre `staging` o `production` cambiando únicamente los parámetros.
+La cuarta etapa es la aplicación de configuración por ambiente. Durante el proceso de despliegue se inyectan variables de entorno específicas (credenciales, endpoints y configuración de servicios como Kafka y PostgreSQL), asegurando que el mismo manifiesto funcione tanto en staging como en production sin cambios estructurales.
 
-La quinta etapa es la **verificación del entorno desplegado**. Tras aplicar infraestructura y servicios, el pipeline debe comprobar que los componentes principales quedaron disponibles y que la conectividad básica se mantiene: `vote` debe poder iniciar, `worker` debe alcanzar Kafka y PostgreSQL, y `result` debe quedar en capacidad de consultar y reaccionar al flujo de actualización definido en la arquitectura.
-
+La quinta etapa es la verificación del despliegue. Una vez levantados los contenedores, el pipeline ejecuta una validación básica del entorno para confirmar que los servicios están activos y que existe conectividad entre vote, worker, result, Kafka y PostgreSQL, garantizando que el sistema quedó operativo según lo esperado.
 ## 11.4 Herramientas y organización de archivos
 
-Para este proyecto, una estrategia coherente es utilizar GitHub Actions como motor del pipeline de infraestructura y Helm como mecanismo de empaquetado y despliegue de los componentes. Esta decisión es consistente con la forma en que el ejemplo original de Okteto despliega `postgresql`, `kafka`, `vote`, `worker` y `result` mediante comandos `helm upgrade --install`, pasando además las imágenes de aplicación por variables o parámetros. En consecuencia, el archivo principal puede ubicarse en `.github/workflows/infra-pipeline.yml`, mientras que la carpeta `infrastructure/` conserva los charts, values y manifiestos relacionados con el entorno.
+Para este proyecto, una estrategia coherente es utilizar GitHub Actions como motor del pipeline de infraestructura y Docker Compose como mecanismo de despliegue de los componentes. Esta decisión es consistente con la forma en que el sistema define y ejecuta los servicios postgresql, kafka, vote, worker y result mediante un docker-compose-deploy.yml, pasando las imágenes de aplicación como variables o tags generados por el pipeline de desarrollo.
 
-Como apoyo adicional, una carpeta `scripts/ops/` puede concentrar scripts de validación de valores, despliegue o verificación posterior. Esta separación permite mantener el pipeline declarativo y delegar acciones repetibles a scripts versionados, lo que facilita mantenimiento y revisión.
+En consecuencia, el archivo principal puede ubicarse en .github/workflows/infra-pipeline.yml, mientras que la configuración de infraestructura queda representada directamente en el docker-compose-deploy.yml, junto con los scripts asociados al proceso de despliegue.
+
+Como apoyo adicional, la carpeta scripts/cd/ concentra los scripts de operación del pipeline, incluyendo la configuración de SSH, la ejecución del despliegue remoto y la verificación posterior del entorno. Esta separación permite mantener el workflow de GitHub Actions enfocado en la orquestación del proceso, delegando la lógica ejecutable a scripts versionados, lo que mejora la mantenibilidad y trazabilidad del sistema.
 
 ## 11.5 Archivos y definiciones operativas involucradas
 
-El pipeline de infraestructura debe apoyarse al menos en los siguientes tipos de archivos:
+El pipeline de infraestructura se apoya principalmente en los siguientes componentes:
 
-* **Manifiestos o charts de PostgreSQL**, responsables de la base de datos persistente.
-* **Manifiestos o charts de Kafka**, responsables del broker y sus recursos asociados.
-* **Definiciones de despliegue de `vote`, `worker` y `result`**, parametrizadas para aceptar imágenes externas y configuración de conectividad.
-* **Archivos de configuración por ambiente**, donde se definan valores como tags de imagen, endpoints, parámetros de servicio y variables requeridas.
-* **Scripts de despliegue o verificación**, usados para aplicar y confirmar el estado del entorno.
+* **Archivo `docker-compose-deploy.yml`**, que define la composición completa del sistema (PostgreSQL, Kafka, `vote`, `worker` y `result`) y permite orquestar su ejecución como un conjunto de contenedores.
+* **Variables de entorno y secretos por ambiente**, utilizados para parametrizar credenciales, endpoints y configuración específica de staging o production.
+* **Imágenes de contenedor versionadas**, generadas por el pipeline de desarrollo y referenciadas mediante tags (por ejemplo `sha-xxxxxxx`) dentro del despliegue.
+* **Scripts de despliegue remoto (`scripts/cd/`)**, responsables de tareas como la configuración de SSH, la actualización del entorno en el servidor y la ejecución de `docker compose up -d` y pruebas.
+
 
 ## 11.6 Trazabilidad entre build y despliegue
 
-La trazabilidad entre el pipeline de desarrollo y el pipeline de infraestructura es un requisito central del diseño. Para asegurarla, el pipeline de infraestructura debe registrar qué build fue tomado como origen, qué imágenes fueron desplegadas y en qué ambiente quedaron activas. Esto permite establecer una relación directa entre commit, imagen y despliegue. En la práctica, la infraestructura no debe ser desplegada con versiones genéricas como `latest`, sino con imágenes concretas e identificables que provengan del build correspondiente.
+La trazabilidad entre el pipeline de desarrollo y el pipeline de infraestructura es un requisito central del diseño. Para asegurarla, el pipeline de infraestructura debe registrar qué build fue tomado como origen, qué imágenes fueron desplegadas y en qué ambiente quedaron activas. Esto permite establecer una relación directa entre commit, imagen y despliegue. 
 
-## 11.8 Evidencia de funcionamiento
+## 11.8 Evidencias
 
-[Poner imagen aqui después de ejecutar el pipeline]
+Ramas
+![alt text](./images/ramas.png)
+Kanban
+![alt text](./images/kanban.png)
+Workflows
+![alt text](./images/workflows.png)
+
+**Video**: https://www.youtube.com/watch?v=UhyG0GRuRRA
+
+
+
+
+
 
 # 12. Implementación de la infraestructura
 
-**Debe contener:**
 
-* Descripción del entorno donde se desplegó la solución
-* Recursos creados
-* Servicios utilizados
-* Configuraciones relevantes
-* Evidencia de despliegue funcional
 
 ## 12.1 Entorno objetivo
 
-**Debe contener:**
+El entorno objetivo corresponde a una **instancia EC2 (Amazon Web Services)**, específicamente una instancia de tipo *small*, donde se despliegan y ejecutan todos los componentes del sistema mediante Docker Compose.
 
-* Plataforma o proveedor utilizado
-* Justificación breve de la elección
+La elección de una instancia pequeña se debe principalmente a consideraciones de recursos y costo, ya que el sistema no requiere alta capacidad de procesamiento ni memoria. Este tipo de instancia es suficiente para ejecutar los servicios `postgresql`, `kafka`, `vote`, `worker` y `result` en un entorno de pruebas o despliegue controlado, manteniendo un balance adecuado entre rendimiento, simplicidad y eficiencia económica.
 
 ## 12.2 Recursos aprovisionados
 
-**Debe contener:**
+El entorno de ejecución está compuesto por una única instancia EC2 donde se despliega el sistema completo mediante Docker Compose. La infraestructura se organiza en los siguientes componentes:
 
-* Cómputo
-* Red
-* Contenedores o servicios de ejecución
-* Base de datos
-* Mensajería
-* Otros recursos relevantes
+* **Cómputo:** Una instancia EC2 tipo small, que provee recursos limitados pero suficientes en CPU y memoria para ejecutar todos los servicios del sistema en un entorno de prueba o despliegue controlado.
+
+* **Red:** Exposición de servicios mediante puertos públicos de la instancia EC2 (8080 para `vote`, 4000 para `result` ), permitiendo el acceso externo a los componentes principales. La comunicación interna entre servicios se realiza a través de la red interna de Docker.
+
+* **Contenedores o servicios de ejecución:** El sistema se ejecuta como un conjunto de contenedores definidos en Docker Compose: `vote`, `worker`, `result`, `kafka`, `kafka-init` y `postgresql`, todos orquestados dentro del mismo host.
+
+* **Base de datos:** PostgreSQL 16-alpine, utilizado como almacenamiento persistente de datos, con volumen `postgres_data` para asegurar la persistencia de la información.
+
+* **Mensajería:** Kafka (Confluent 7.7.8), utilizado como broker de eventos entre los servicios, junto con un contenedor de inicialización (`kafka-init`) encargado de crear los topics necesarios.
 
 ## 12.3 Proceso de despliegue
 
-**Debe contener:**
+1. **Bootstrap del servidor (fuera del pipeline):**  
+   Antes de cualquier ejecución del pipeline, la instancia EC2 es preparada manualmente o mediante user-data. En este paso se instalan Docker y Docker Compose, y se habilita y arranca el servicio de Docker para dejar el entorno listo para recibir despliegues. El script corresponde a bootstrap.sh
 
-* Secuencia seguida para desplegar
-* Dependencias entre recursos
-* Problemas encontrados y solución aplicada
+2. **Ejecución del pipeline de infraestructura:**  
+   El pipeline se conecta al servidor correspondiente mediante SSH, seleccionando el entorno según el target:
+   - Si es `staging`, se utiliza la IP de staging.
+   - Si es `production`, se utiliza la IP de producción.
+
+   A partir de esta selección, el pipeline:
+   - Trae las imágenes correspondientes desde el registry usando el `image_tag` generado por el pipeline de desarrollo.
+   - Actualiza y ejecuta el `docker-compose-deploy.yml` en el servidor.
+   - Levanta los contenedores mediante `docker compose up -d`, asegurando que el entorno quede completamente operativo.
+3. **Validación del despliegue:**  
+   Una vez levantados los servicios, el pipeline ejecuta un script de verificación que utiliza `curl` para comprobar que los servicios principales (`vote` y `result`) están respondiendo correctamente, validando así que el sistema quedó funcional.
+
 
 ## 12.4 Validación de la infraestructura
 
-**Debe contener:**
+La validación de la infraestructura se realiza una vez completado el proceso de despliegue en la instancia EC2. Su objetivo es confirmar que todos los servicios quedaron correctamente levantados y que el sistema es funcional de extremo a extremo.
 
-* Verificación de disponibilidad
-* Verificación de comunicación entre componentes
-* Evidencia de funcionamiento del sistema desplegado
+Este proceso se apoya en el script `scripts/cd/test_deploy.sh`, el cual automatiza las comprobaciones posteriores al despliegue. Este script ejecuta peticiones `curl` a los servicios principales (`vote` y `result`) para verificar que están respondiendo correctamente en sus endpoints expuestos.
+
+**Video**: https://www.youtube.com/watch?v=UhyG0GRuRRA
