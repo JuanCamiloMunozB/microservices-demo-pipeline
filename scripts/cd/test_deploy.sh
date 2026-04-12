@@ -5,12 +5,21 @@ check() {
   PORT=$1
   echo "Testing $IP:$PORT ..."
 
-  if curl -f --max-time 5 "$IP:$PORT/" >/dev/null; then
-    echo "Port $PORT is OK"
-  else
-    echo "Port $PORT FAILED"
-    exit 1
-  fi
+  TIMEOUT=60
+  INTERVAL=3
+  END=$((SECONDS + TIMEOUT))
+
+  while [ $SECONDS -lt $END ]; do
+    if curl -f --max-time 5 "$IP:$PORT/" >/dev/null 2>&1; then
+      echo "Port $PORT is OK"
+      return 0
+    fi
+
+    sleep $INTERVAL
+  done
+
+  echo "Port $PORT FAILED"
+  exit 1
 }
 
 check 8080
