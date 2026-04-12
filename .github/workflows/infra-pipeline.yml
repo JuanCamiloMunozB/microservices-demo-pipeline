@@ -71,7 +71,7 @@ jobs:
       - name: Deploy
         env:
           IP: ${{ steps.ctx.outputs.branch == 'production' && secrets.PROD_IP || secrets.STAGING_IP }}
-          IMAGE_TAG: ${{ steps.ctx.outputs.image_tag }}
+          IMAGE_TAG: ${{ github.event_name == 'push' && 'latest' || steps.ctx.outputs.image_tag }}
           ENV_WORKER: ${{ secrets.ENV_WORKER }}
           ENV_VOTE: ${{ secrets.ENV_VOTE }}
           ENV_RESULT: ${{ secrets.ENV_RESULT }}
