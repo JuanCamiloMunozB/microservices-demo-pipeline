@@ -1,0 +1,84 @@
+name: Infrastructure Pipeline
+on:
+  workflow_run:
+    workflows: ["Development Pipeline"]
+    types: [completed]
+    branches: [staging, production]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag (e.g. sha-a1b2c3d)"
+        required: true
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options: [staging, production]
+  pull_request:
+    branches: [production]
+    paths:
+      - docker-compose-deploy.yml
+      - .github/workflows/infra-pipeline.yml
+      - scripts/cd/**
+  push:
+    branches: [staging, production]
+    paths:
+      - docker-compose-deploy.yml
+      - .github/workflows/infra-pipeline.yml
+      - scripts/cd/**
+
+jobs:
+  deploy:
+    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-${{ github.event.workflow_run.head_branch || inputs.environment || github.ref_name }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Compute image tag and target
+        id: ctx
+        run: |
+          case "${{ github.event_name }}" in
+            workflow_run)
+              sha="${{ github.event.workflow_run.head_sha }}"
+              echo "image_tag=sha-${sha:0:7}" >> "$GITHUB_OUTPUT"
+              echo "branch=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
+              ;;
+            workflow_dispatch)
+              echo "image_tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+              echo "branch=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+              ;;
+            push)
+              sha="${{ github.sha }}"
+              echo "image_tag=sha-${sha:0:7}" >> "$GITHUB_OUTPUT"
+              echo "branch=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unsupported event: ${{ github.event_name }}"
+              exit 1
+              ;;
+          esac
+
+      - name: Setup SSH key
+        env:
+          SSH_KEY: ${{ steps.ctx.outputs.branch == 'production' && secrets.PROD_KEY || secrets.STAGING_KEY }}
+        run: bash scripts/cd/setup_ssh.sh
+
+      - name: Deploy
+        env:
+          IP: ${{ steps.ctx.outputs.branch == 'production' && secrets.PROD_IP || secrets.STAGING_IP }}
+          IMAGE_TAG: ${{ steps.ctx.outputs.image_tag }}
+          ENV_WORKER: ${{ secrets.ENV_WORKER }}
+          ENV_VOTE: ${{ secrets.ENV_VOTE }}
+          ENV_RESULT: ${{ secrets.ENV_RESULT }}
+          ENV: ${{ secrets.ENV }}
+        run: bash scripts/cd/deploy.sh
+
+      - name: Test
+        env:
+          IP: ${{ steps.ctx.outputs.branch == 'production' && secrets.PROD_IP || secrets.STAGING_IP }}
+        run: bash scripts/cd/test_deploy.sh
